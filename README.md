@@ -132,6 +132,49 @@ For automated pipelines where no sandbox restrictions apply. PTY spawning will f
 node dist/mcp/index.js
 ```
 
+## Running as a macOS Service (launchd)
+
+For persistent operation, install as a launchd service that starts on login and auto-restarts on crash:
+
+```bash
+npx tui-harness-mcp install-launchd
+```
+
+This will:
+- Generate a plist at `~/Library/LaunchAgents/tui_harness_mcp_launch.plist` with your current node path and project location
+- Load the service immediately
+- Print the `claude mcp add` command to register it in Claude Code
+
+### Managing the service
+
+```bash
+launchctl stop tui_harness_mcp_launch        # stop
+launchctl start tui_harness_mcp_launch       # start
+launchctl unload ~/Library/LaunchAgents/tui_harness_mcp_launch.plist  # disable
+launchctl load ~/Library/LaunchAgents/tui_harness_mcp_launch.plist    # re-enable
+tail -f ~/Library/Logs/tui-harness.stderr.log  # watch logs
+```
+
+## Using with Claude Code
+
+### Register as a global MCP server
+
+After the server is running (via launchd or manually), register it so every Claude Code session can use the TUI tools:
+
+```bash
+claude mcp add --transport http -s user tui-harness http://127.0.0.1:24100/mcp
+```
+
+### Verify it works
+
+In a Claude Code session, the `tui_*` tools should be available. Test with:
+
+```
+tui_list_sessions
+```
+
+If you get `Session not found` errors after restarting the server, restart Claude Code or run `/mcp` to reconnect.
+
 ## TUI Flow Executor Agent
 
 The server ships with a Claude Code agent that can execute multi-step TUI flows autonomously. A parent agent describes an expected flow (screens, actions, transitions), and the Haiku-powered sub-agent drives the TUI harness, validates each step, captures screenshots on screen changes, and produces a markdown report.

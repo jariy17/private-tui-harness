@@ -1,10 +1,11 @@
 import { startHttpServer } from './http-server.js';
 import { closeAllSessions, createServer } from './server.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { cpSync, existsSync, mkdirSync } from 'fs';
+import { cpSync, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { homedir } from 'os';
+import { homedir, platform } from 'os';
+import { execSync } from 'child_process';
 
 const DEFAULT_PORT = 24100;
 const MIN_PORT = 1024;
@@ -90,6 +91,105 @@ function installAgent(): void {
 }
 
 // ---------------------------------------------------------------------------
+// install-launchd subcommand
+// ---------------------------------------------------------------------------
+
+function installLaunchd(): void {
+  if (platform() !== 'darwin') {
+    console.error('Error: launchd is macOS-only. On Linux, use systemd or run the server directly.');
+    process.exit(1);
+  }
+
+  const nodePath = process.execPath;
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  const projectRoot = resolve(__dirname, '..', '..');
+  const entryPoint = join(projectRoot, 'dist', 'mcp', 'index.js');
+  const home = homedir();
+  const user = process.env.USER ?? 'unknown';
+  const nodeDir = dirname(nodePath);
+
+  if (!existsSync(entryPoint)) {
+    console.error(`Error: Entry point not found at ${entryPoint}. Run npm run build first.`);
+    process.exit(1);
+  }
+
+  const label = 'tui_harness_mcp_launch';
+  const plistPath = join(home, 'Library', 'LaunchAgents', `${label}.plist`);
+  const logsDir = join(home, 'Library', 'Logs');
+
+  const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${label}</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>${nodePath}</string>
+        <string>${entryPoint}</string>
+        <string>--http</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>${projectRoot}</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>${logsDir}/tui-harness.stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>${logsDir}/tui-harness.stderr.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>${nodeDir}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>${home}</string>
+        <key>USER</key>
+        <string>${user}</string>
+        <key>SHELL</key>
+        <string>/bin/zsh</string>
+        <key>LANG</key>
+        <string>en_US.UTF-8</string>
+    </dict>
+</dict>
+</plist>`;
+
+  mkdirSync(dirname(plistPath), { recursive: true });
+  writeFileSync(plistPath, plist, 'utf-8');
+
+  // Unload previous version, then load new one
+  try {
+    execSync(`launchctl unload "${plistPath}" 2>/dev/null`, { stdio: 'ignore' });
+  } catch {
+    // May not exist yet
+  }
+  execSync(`launchctl load "${plistPath}"`);
+
+  console.log(`Installed launchd service: ${label}`);
+  console.log(`  Plist: ${plistPath}`);
+  console.log(`  Logs:  ${logsDir}/tui-harness.stderr.log`);
+  console.log('');
+  console.log('The server will start on login and auto-restart on crash.');
+  console.log('');
+  console.log('Register it in Claude Code:');
+  console.log(`  claude mcp add --transport http -s user tui-harness http://127.0.0.1:${DEFAULT_PORT}/mcp`);
+  console.log('');
+  console.log('Manage the service:');
+  console.log(`  launchctl stop ${label}`);
+  console.log(`  launchctl start ${label}`);
+  console.log(`  launchctl unload "${plistPath}"`);
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -98,6 +198,11 @@ async function main(): Promise<void> {
 
   if (args.includes('install-agent')) {
     installAgent();
+    return;
+  }
+
+  if (args.includes('install-launchd')) {
+    installLaunchd();
     return;
   }
 
