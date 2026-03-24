@@ -132,6 +132,54 @@ For automated pipelines where no sandbox restrictions apply. PTY spawning will f
 node dist/mcp/index.js
 ```
 
+## TUI Flow Executor Agent
+
+The server ships with a Claude Code agent that can execute multi-step TUI flows autonomously. A parent agent describes an expected flow (screens, actions, transitions), and the Haiku-powered sub-agent drives the TUI harness, validates each step, captures screenshots on screen changes, and produces a markdown report.
+
+### Install the agent
+
+```bash
+npx tui-harness-mcp install-agent
+```
+
+This copies the agent definition to `~/.claude/agents/tui-flow-executor.md`, making it available globally in Claude Code.
+
+### How it works
+
+A parent agent spawns the `tui-flow-executor` sub-agent via the Agent tool with `model: "haiku"`. The sub-agent:
+
+1. Launches the TUI command via `tui_launch`
+2. Steps through the expected flow, verifying each screen matches before acting
+3. Screenshots on screen/window transitions (not every keystroke)
+4. If the flow deviates from expectations — stops immediately and reports what went wrong
+5. Writes a markdown report with embedded SVG screenshots to the specified output directory
+6. Returns a concise summary to the parent agent
+
+### Example
+
+```
+Agent({
+  model: "haiku",
+  subagent_type: "tui-flow-executor",
+  description: "Run deploy flow",
+  prompt: `Execute this TUI flow:
+    Command: my-cli deploy
+    Steps:
+    1. EXPECT "Select environment" → send DOWN DOWN ENTER
+    2. EXPECT "Confirm?" → send "y" ENTER
+    3. EXPECT "Deploy complete"
+    Output directory: /tmp/deploy-report`
+})
+```
+
+Returns:
+```
+STATUS: SUCCESS
+STEPS_COMPLETED: 3/3
+REPORT: /tmp/deploy-report/report.md
+SCREENSHOTS: /tmp/deploy-report/screenshots/
+```
+
 ## Requirements
 
 - Node.js >= 20

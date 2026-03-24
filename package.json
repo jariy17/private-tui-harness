@@ -4,6 +4,10 @@
   "description": "MCP server for programmatically driving any TUI application via headless pseudo-terminals",
   "type": "module",
   "main": "dist/index.js",
+  "files": [
+    "dist",
+    "agents"
+  ],
   "bin": {
     "tui-harness-mcp": "dist/mcp/index.js"
   },

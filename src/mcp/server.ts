@@ -405,7 +405,16 @@ function handleListSessions() {
  * Call `server.connect(transport)` to start serving requests.
  */
 export function createServer(): McpServer {
-  const server = new McpServer({ name: 'tui-harness', version: '1.0.0' });
+  const server = new McpServer(
+    { name: 'tui-harness', version: '1.0.0' },
+    {
+      instructions:
+        'This server provides tools for driving TUI applications via headless pseudo-terminals. ' +
+        'For multi-step TUI flows, use the "tui-flow-executor" Claude Code agent (model: haiku) which ' +
+        'drives these tools autonomously, validates each step, captures screenshots on screen changes, ' +
+        'and produces a markdown report. Install it with: npx tui-harness-mcp install-agent',
+    }
+  );
 
   // --- tui_launch ---
   server.registerTool(

@@ -270,6 +270,7 @@ export async function startHttpServer(port: number): Promise<void> {
     httpServer.listen(port, '127.0.0.1', () => {
       process.stderr.write(`[mcp-http] MCP server listening at http://127.0.0.1:${port}/mcp\n`);
       process.stderr.write(`[mcp-http] Web console at http://127.0.0.1:${port}/\n`);
+      process.stderr.write(`[mcp-http] TUI flow executor agent: npx tui-harness-mcp install-agent\n`);
       resolve();
     });
   });
