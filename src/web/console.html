@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TUI Harness Console</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-tertiary: #21262d;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  header {
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  header h1 {
+    font-size: 18px;
+    font-weight: 600;
+  }
+  header .status {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-left: auto;
+  }
+  header .status.connected { color: var(--green); }
+  header .status.disconnected { color: var(--red); }
+  .container {
+    display: flex;
+    height: calc(100vh - 49px);
+  }
+  .sidebar {
+    width: 280px;
+    min-width: 280px;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+  }
+  .sidebar h2 {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    padding: 16px 16px 8px;
+    letter-spacing: 0.5px;
+  }
+  .session-item {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .session-item:hover { background: var(--bg-tertiary); }
+  .session-item.active { background: var(--bg-tertiary); border-left: 3px solid var(--accent); }
+  .session-item .name {
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .session-item .meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  .session-item .badge {
+    display: inline-block;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-weight: 500;
+  }
+  .badge.alive { background: rgba(63,185,80,0.15); color: var(--green); }
+  .badge.dead { background: rgba(248,81,73,0.15); color: var(--red); }
+  .no-sessions {
+    padding: 32px 16px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .toolbar {
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .toolbar button {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .toolbar button:hover { background: var(--border); }
+  .toolbar button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .toolbar button.danger { color: var(--red); }
+  .toolbar button.danger:hover { background: rgba(248,81,73,0.15); }
+  .toolbar .spacer { flex: 1; }
+  .toolbar .info {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .terminal-view {
+    flex: 1;
+    overflow: auto;
+    padding: 16px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+  }
+  .terminal-frame {
+    background: #1e1e1e;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    position: relative;
+  }
+  .terminal-chrome {
+    background: #1e1e1e;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .terminal-chrome .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .terminal-chrome .dot.red { background: #ff5f56; }
+  .terminal-chrome .dot.yellow { background: #ffbd2e; }
+  .terminal-chrome .dot.green { background: #27c93f; }
+  .terminal-chrome .title {
+    flex: 1;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .terminal-content {
+    padding: 8px;
+    font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.3;
+    white-space: pre;
+    color: #d4d4d4;
+    min-height: 200px;
+    outline: none;
+  }
+  .terminal-content.interactive {
+    cursor: text;
+    border: 2px solid var(--accent);
+    border-radius: 0 0 6px 6px;
+  }
+  .welcome {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted);
+    gap: 12px;
+  }
+  .welcome h2 { font-size: 20px; font-weight: 500; }
+  .welcome p { font-size: 14px; }
+  #refresh-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  #refresh-indicator.active { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>TUI Harness Console</h1>
+  <div id="refresh-indicator"></div>
+  <div id="connection-status" class="status disconnected">Connecting...</div>
+</header>
+
+<div class="container">
+  <div class="sidebar">
+    <h2>Sessions</h2>
+    <div id="session-list">
+      <div class="no-sessions">No active sessions</div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div id="toolbar" class="toolbar" style="display:none">
+      <button id="btn-refresh" title="Refresh screen">Refresh</button>
+      <button id="btn-interactive" title="Take over this terminal">Interactive</button>
+      <button id="btn-screenshot" title="Save SVG screenshot">Screenshot</button>
+      <span class="spacer"></span>
+      <span id="session-info" class="info"></span>
+      <button id="btn-close" class="danger" title="Close session">Close</button>
+    </div>
+
+    <div class="terminal-view">
+      <div id="welcome" class="welcome">
+        <h2>Select a session</h2>
+        <p>Choose a session from the sidebar to view its terminal, or launch one via MCP tools.</p>
+      </div>
+      <div id="terminal-container" style="display:none">
+        <div class="terminal-frame">
+          <div class="terminal-chrome">
+            <div class="dot red"></div>
+            <div class="dot yellow"></div>
+            <div class="dot green"></div>
+            <span class="title" id="terminal-title"></span>
+          </div>
+          <div id="terminal-content" class="terminal-content" tabindex="0"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const API_BASE = window.location.origin + '/api';
+  let sessions = [];
+  let activeSessionId = null;
+  let interactiveMode = false;
+  let pollInterval = null;
+  let screenPollInterval = null;
+
+  // DOM refs
+  const sessionList = document.getElementById('session-list');
+  const welcome = document.getElementById('welcome');
+  const terminalContainer = document.getElementById('terminal-container');
+  const terminalContent = document.getElementById('terminal-content');
+  const terminalTitle = document.getElementById('terminal-title');
+  const toolbar = document.getElementById('toolbar');
+  const sessionInfo = document.getElementById('session-info');
+  const connectionStatus = document.getElementById('connection-status');
+  const refreshIndicator = document.getElementById('refresh-indicator');
+  const btnInteractive = document.getElementById('btn-interactive');
+  const btnRefresh = document.getElementById('btn-refresh');
+  const btnScreenshot = document.getElementById('btn-screenshot');
+  const btnClose = document.getElementById('btn-close');
+
+  async function api(path, options) {
+    try {
+      const res = await fetch(API_BASE + path, options);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      console.error('API error:', path, err);
+      return null;
+    }
+  }
+
+  async function fetchSessions() {
+    const data = await api('/sessions');
+    if (!data) {
+      connectionStatus.textContent = 'Disconnected';
+      connectionStatus.className = 'status disconnected';
+      return;
+    }
+    connectionStatus.textContent = `Connected (${data.sessions.length} sessions)`;
+    connectionStatus.className = 'status connected';
+    sessions = data.sessions;
+    renderSessionList();
+
+    // If active session is gone, deselect
+    if (activeSessionId && !sessions.find(s => s.sessionId === activeSessionId)) {
+      selectSession(null);
+    }
+  }
+
+  function renderSessionList() {
+    if (sessions.length === 0) {
+      sessionList.innerHTML = '<div class="no-sessions">No active sessions</div>';
+      return;
+    }
+    sessionList.innerHTML = sessions.map(s => {
+      const isActive = s.sessionId === activeSessionId;
+      const badge = s.alive
+        ? '<span class="badge alive">alive</span>'
+        : '<span class="badge dead">exited</span>';
+      const cmd = s.command + (s.cwd ? ` (${s.cwd.split('/').pop()})` : '');
+      return `
+        <div class="session-item ${isActive ? 'active' : ''}" data-id="${s.sessionId}">
+          <div class="name">${escapeHtml(cmd)} ${badge}</div>
+          <div class="meta">${s.dimensions.cols}x${s.dimensions.rows} | PID ${s.pid}</div>
+          <div class="meta">${s.sessionId.substring(0, 8)}...</div>
+        </div>
+      `;
+    }).join('');
+
+    sessionList.querySelectorAll('.session-item').forEach(el => {
+      el.addEventListener('click', () => selectSession(el.dataset.id));
+    });
+  }
+
+  function selectSession(id) {
+    activeSessionId = id;
+    interactiveMode = false;
+    btnInteractive.classList.remove('active');
+    terminalContent.classList.remove('interactive');
+
+    if (screenPollInterval) {
+      clearInterval(screenPollInterval);
+      screenPollInterval = null;
+    }
+
+    if (!id) {
+      welcome.style.display = 'flex';
+      terminalContainer.style.display = 'none';
+      toolbar.style.display = 'none';
+      renderSessionList();
+      return;
+    }
+
+    welcome.style.display = 'none';
+    terminalContainer.style.display = 'block';
+    toolbar.style.display = 'flex';
+
+    const s = sessions.find(s => s.sessionId === id);
+    if (s) {
+      terminalTitle.textContent = `${s.command} — ${s.dimensions.cols}x${s.dimensions.rows}`;
+      sessionInfo.textContent = `PID ${s.pid} | ${s.sessionId.substring(0, 8)}`;
+    }
+
+    renderSessionList();
+    refreshScreen();
+
+    // Auto-refresh screen every 500ms
+    screenPollInterval = setInterval(refreshScreen, 500);
+  }
+
+  async function refreshScreen() {
+    if (!activeSessionId) return;
+
+    refreshIndicator.classList.add('active');
+    const data = await api(`/sessions/${activeSessionId}/screen-rich`);
+    refreshIndicator.classList.remove('active');
+
+    if (!data || !data.richLines) return;
+    renderRichScreen(data.richLines);
+  }
+
+  function renderRichScreen(richLines) {
+    const fragment = document.createDocumentFragment();
+
+    for (let r = 0; r < richLines.length; r++) {
+      const line = richLines[r];
+      if (line.length === 0) {
+        fragment.appendChild(document.createTextNode('\n'));
+        continue;
+      }
+
+      // Group consecutive cells with the same style into spans
+      let i = 0;
+      while (i < line.length) {
+        const cell = line[i];
+        const styleKey = cellStyleKey(cell);
+
+        // Collect run of same-styled cells
+        let text = cell.char;
+        let j = i + 1;
+        while (j < line.length && cellStyleKey(line[j]) === styleKey) {
+          text += line[j].char;
+          j++;
+        }
+
+        if (cell.fg || cell.bg || cell.bold || cell.italic || cell.underline || cell.dim) {
+          const span = document.createElement('span');
+          let css = '';
+          if (cell.fg) css += 'color:' + cell.fg + ';';
+          if (cell.bg) css += 'background:' + cell.bg + ';';
+          if (cell.bold) css += 'font-weight:bold;';
+          if (cell.italic) css += 'font-style:italic;';
+          if (cell.underline) css += 'text-decoration:underline;';
+          if (cell.dim) css += 'opacity:0.5;';
+          span.setAttribute('style', css);
+          span.textContent = text;
+          fragment.appendChild(span);
+        } else {
+          fragment.appendChild(document.createTextNode(text));
+        }
+
+        i = j;
+      }
+
+      if (r < richLines.length - 1) {
+        fragment.appendChild(document.createTextNode('\n'));
+      }
+    }
+
+    terminalContent.innerHTML = '';
+    terminalContent.appendChild(fragment);
+  }
+
+  function cellStyleKey(cell) {
+    return (cell.fg || '') + '|' + (cell.bg || '') + '|' +
+      (cell.bold ? 'b' : '') + (cell.italic ? 'i' : '') +
+      (cell.underline ? 'u' : '') + (cell.dim ? 'd' : '');
+  }
+
+  function toggleInteractive() {
+    interactiveMode = !interactiveMode;
+    if (interactiveMode) {
+      btnInteractive.classList.add('active');
+      btnInteractive.textContent = 'Viewing';
+      terminalContent.classList.add('interactive');
+      terminalContent.focus();
+    } else {
+      btnInteractive.classList.remove('active');
+      btnInteractive.textContent = 'Interactive';
+      terminalContent.classList.remove('interactive');
+    }
+  }
+
+  async function sendKeys(keys) {
+    if (!activeSessionId || !interactiveMode) return;
+    await api(`/sessions/${activeSessionId}/keys`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keys }),
+    });
+    refreshScreen();
+  }
+
+  async function sendSpecialKey(key) {
+    if (!activeSessionId || !interactiveMode) return;
+    await api(`/sessions/${activeSessionId}/keys`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ specialKey: key }),
+    });
+    refreshScreen();
+  }
+
+  async function takeScreenshot() {
+    if (!activeSessionId) return;
+    const data = await api(`/sessions/${activeSessionId}/screenshot`);
+    if (!data || !data.svg) return;
+
+    const blob = new Blob([data.svg], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tui-screenshot-${activeSessionId.substring(0, 8)}.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function closeSession() {
+    if (!activeSessionId) return;
+    if (!confirm('Close this session? The process will be terminated.')) return;
+    await api(`/sessions/${activeSessionId}/close`, { method: 'POST' });
+    selectSession(null);
+    fetchSessions();
+  }
+
+  // Keyboard handler for interactive mode
+  terminalContent.addEventListener('keydown', (e) => {
+    if (!interactiveMode) return;
+    e.preventDefault();
+
+    const SPECIAL_MAP = {
+      'Enter': 'enter',
+      'Tab': 'tab',
+      'Escape': 'escape',
+      'Backspace': 'backspace',
+      'Delete': 'delete',
+      'ArrowUp': 'up',
+      'ArrowDown': 'down',
+      'ArrowLeft': 'left',
+      'ArrowRight': 'right',
+      'Home': 'home',
+      'End': 'end',
+      'PageUp': 'pageup',
+      'PageDown': 'pagedown',
+      'F1': 'f1', 'F2': 'f2', 'F3': 'f3', 'F4': 'f4',
+      'F5': 'f5', 'F6': 'f6', 'F7': 'f7', 'F8': 'f8',
+      'F9': 'f9', 'F10': 'f10', 'F11': 'f11', 'F12': 'f12',
+    };
+
+    // Ctrl combos
+    if (e.ctrlKey && e.key.length === 1) {
+      const combo = 'ctrl+' + e.key.toLowerCase();
+      sendSpecialKey(combo);
+      return;
+    }
+
+    if (SPECIAL_MAP[e.key]) {
+      sendSpecialKey(SPECIAL_MAP[e.key]);
+      return;
+    }
+
+    // Regular printable character
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      sendKeys(e.key);
+    }
+  });
+
+  btnRefresh.addEventListener('click', refreshScreen);
+  btnInteractive.addEventListener('click', toggleInteractive);
+  btnScreenshot.addEventListener('click', takeScreenshot);
+  btnClose.addEventListener('click', closeSession);
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  // Start polling sessions
+  fetchSessions();
+  pollInterval = setInterval(fetchSessions, 2000);
+})();
+</script>
+</body>
+</html>

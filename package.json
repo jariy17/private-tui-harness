@@ -1,0 +1,40 @@
+{
+  "name": "tui-harness-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for programmatically driving any TUI application via headless pseudo-terminals",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "tui-harness-mcp": "dist/mcp/index.js"
+  },
+  "scripts": {
+    "build": "tsc && cp src/web/console.html dist/web/console.html",
+    "start": "node dist/mcp/index.js --http",
+    "start:stdio": "node dist/mcp/index.js",
+    "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "mcp",
+    "tui",
+    "terminal",
+    "pty",
+    "headless",
+    "testing",
+    "automation"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@xterm/headless": "^6.0.0",
+    "node-pty": "^1.1.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
