@@ -17,7 +17,9 @@
     "start:stdio": "node dist/mcp/index.js",
     "prepare": "tsc && cp src/web/console.html dist/web/console.html",
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [
     "mcp",
@@ -37,7 +39,8 @@
     "zod": "^3.23.0"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0"
+    "@types/node": "^22.0.0",
+    "vitest": "^4.0.0"
   },
   "engines": {
     "node": ">=20.0.0"

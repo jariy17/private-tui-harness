@@ -23,6 +23,10 @@ export { isAvailable, unavailableReason } from './lib/availability.js';
 // --- Session management (for cleanup) ---
 export { closeAll } from './lib/session-manager.js';
 
+// --- Test helpers ---
+export { createTempDir } from './helpers.js';
+export type { CreateTempDirOptions, TempDirResult } from './helpers.js';
+
 // --- SVG Screenshots ---
 export { renderTerminalToSvg, DARK_THEME, LIGHT_THEME } from './lib/svg-renderer.js';
 export type { SvgRenderOptions, SvgTheme } from './lib/svg-renderer.js';
