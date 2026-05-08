@@ -301,6 +301,7 @@ function handleScreenshot(args: {
   format?: 'text' | 'svg';
   theme?: 'dark' | 'light';
   savePath?: string;
+  returnContent?: boolean;
 }) {
   const { sessionId } = args;
   const session = getSession(sessionId);
@@ -331,9 +332,11 @@ function handleScreenshot(args: {
         writeFileSync(args.savePath, svg, 'utf-8');
       }
 
+      const includeContent = args.returnContent !== false;
+
       return jsonResponse({
         format: 'svg',
-        svg,
+        ...(includeContent ? { svg } : {}),
         ...(args.savePath ? { savePath: args.savePath } : {}),
         metadata,
       });
@@ -352,9 +355,11 @@ function handleScreenshot(args: {
       writeFileSync(args.savePath, screenshot, 'utf-8');
     }
 
+    const includeContent = args.returnContent !== false;
+
     return jsonResponse({
       format: 'text',
-      screenshot,
+      ...(includeContent ? { screenshot } : {}),
       ...(args.savePath ? { savePath: args.savePath } : {}),
       metadata,
     });
@@ -613,6 +618,12 @@ export function createServer(): McpServer {
           .optional()
           .describe(
             'Absolute file path to write the screenshot content to disk. The file is written in UTF-8 encoding.'
+          ),
+        returnContent: z
+          .boolean()
+          .optional()
+          .describe(
+            'Whether to return the screenshot content in the response (default: true). Set to false when savePath is provided to avoid returning large SVG/text content to the model.'
           ),
       },
       annotations: {
