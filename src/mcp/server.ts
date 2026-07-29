@@ -1,7 +1,7 @@
 /**
  * MCP server for the TUI harness.
  *
- * Creates and configures an MCP Server instance that exposes eight tools for
+ * Creates and configures an MCP Server instance that exposes tools for
  * interacting with TUI applications through headless pseudo-terminals:
  *
  *   tui_launch        - Spawn a TUI process in a PTY
@@ -12,6 +12,10 @@
  *   tui_screenshot    - Capture a bordered, numbered screenshot (text or SVG)
  *   tui_close         - Close a session and terminate its process
  *   tui_list_sessions - List retained sessions and their current liveness
+ *   tui_record_start  - Start a demo recording
+ *   tui_record_mark   - Add a timed caption or narration cue
+ *   tui_record_stop   - Stop and save a recording artifact
+ *   tui_demo_render   - Render a recording artifact to MP4 or WebM
  */
 import {
   DARK_THEME,
@@ -22,6 +26,7 @@ import {
   TuiSession,
   WaitForTimeoutError,
   closeAll,
+  renderDemo,
 } from '../index.js';
 import type { CloseResult, SpecialKey, SvgRenderOptions } from '../index.js';
 import { LAUNCH_DEFAULTS, SPECIAL_KEY_ENUM, TOOL_NAMES } from './tools.js';
@@ -427,6 +432,11 @@ async function handleClose(args: { sessionId: string; signal?: string }) {
   if (!session) {
     return errorResponse(`Session not found: ${sessionId}`);
   }
+  if (session.demoRecordingStatus?.active) {
+    return errorResponse(
+      `Session ${sessionId} has an active demo recording. Save it with tui_record_stop before closing the session.`
+    );
+  }
 
   try {
     const { signal } = args;
@@ -450,6 +460,143 @@ function handleListSessions() {
   return jsonResponse({ sessions: sessionList });
 }
 
+function handleRecordStart(args: { sessionId: string; captureInput?: boolean }) {
+  const session = getSession(args.sessionId);
+  if (!session) {
+    return errorResponse(`Session not found: ${args.sessionId}`);
+  }
+
+  try {
+    return jsonResponse({
+      sessionId: args.sessionId,
+      recording: session.startDemoRecording({ captureInput: args.captureInput }),
+    });
+  } catch (err) {
+    return errorResponse(
+      `Failed to start recording session ${args.sessionId}: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
+function handleRecordMark(args: {
+  sessionId: string;
+  label?: string;
+  caption?: string;
+  narration?: string;
+  audioPath?: string;
+  holdMs?: number;
+}) {
+  const session = getSession(args.sessionId);
+  if (!session) {
+    return errorResponse(`Session not found: ${args.sessionId}`);
+  }
+
+  try {
+    const marker = session.markDemoRecording({
+      label: args.label,
+      caption: args.caption,
+      narration: args.narration,
+      audioPath: args.audioPath,
+      holdMs: args.holdMs,
+    });
+    return jsonResponse({ sessionId: args.sessionId, marker });
+  } catch (err) {
+    return errorResponse(
+      `Failed to mark recording for session ${args.sessionId}: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
+async function handleRecordStop(args: { sessionId: string; savePath: string }) {
+  const session = getSession(args.sessionId);
+  if (!session) {
+    return errorResponse(`Session not found: ${args.sessionId}`);
+  }
+
+  try {
+    return jsonResponse(await session.stopDemoRecording(args.savePath));
+  } catch (err) {
+    return errorResponse(
+      `Failed to stop recording session ${args.sessionId}: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
+async function handleDemoRender(args: {
+  recordingPath: string;
+  outputPath: string;
+  format?: 'mp4' | 'webm';
+  renderer?: 'native' | 'mac';
+  fps?: number;
+  theme?: 'dark' | 'light';
+  title?: string;
+  fontSize?: number;
+  tailHoldMs?: number;
+  captions?: boolean;
+  pollyVoiceId?: string;
+  pollyEngine?: 'standard' | 'neural' | 'long-form' | 'generative';
+  awsProfile?: string;
+  awsRegion?: string;
+  narrationOutputPath?: string;
+  macPath?: string;
+  macTransition?: 'crossfade' | 'slideLeft' | 'slideRight' | 'slideUp' | 'slideDown' | 'wipe' | 'fadeBlack' | 'zoom';
+  macTransitionMs?: number;
+  macEasing?: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut';
+  macCaptionFontSize?: number;
+  macNarrationPaddingMs?: number;
+  macProgramFileName?: string;
+  ffmpegPath?: string;
+  ffprobePath?: string;
+  keepWorkDir?: boolean;
+  workDir?: string;
+}) {
+  try {
+    const result = await renderDemo({
+      recording: args.recordingPath,
+      outputPath: args.outputPath,
+      format: args.format,
+      renderer: args.renderer,
+      fps: args.fps,
+      theme: args.theme,
+      title: args.title,
+      fontSize: args.fontSize,
+      tailHoldMs: args.tailHoldMs,
+      captions: args.captions,
+      ...(args.pollyVoiceId
+        ? {
+            polly: {
+              voiceId: args.pollyVoiceId,
+              engine: args.pollyEngine,
+              profile: args.awsProfile,
+              region: args.awsRegion,
+            },
+          }
+        : {}),
+      ...(args.renderer === 'mac'
+        ? {
+            mac: {
+              executablePath: args.macPath,
+              transition: args.macTransition,
+              transitionMs: args.macTransitionMs,
+              easing: args.macEasing,
+              captionFontSize: args.macCaptionFontSize,
+              narrationPaddingMs: args.macNarrationPaddingMs,
+              programFileName: args.macProgramFileName,
+            },
+          }
+        : {}),
+      ffmpegPath: args.ffmpegPath,
+      ffprobePath: args.ffprobePath,
+      narrationOutputPath: args.narrationOutputPath,
+      keepWorkDir: args.keepWorkDir,
+      workDir: args.workDir,
+    });
+    return jsonResponse(result);
+  } catch (err) {
+    return errorResponse(`Failed to render TUI demo: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Server factory
 // ---------------------------------------------------------------------------
@@ -463,13 +610,14 @@ function handleListSessions() {
  */
 export function createServer(): McpServer {
   const server = new McpServer(
-    { name: 'tui-harness', version: '1.0.0' },
+    { name: 'tui-harness', version: '0.3.0' },
     {
       instructions:
         'This server provides tools for driving TUI applications via headless pseudo-terminals. ' +
+        'It can record sessions and render polished captioned or narrated demo videos. ' +
         'For multi-step TUI flows, use the "tui-flow-executor" Claude Code agent (model: haiku) which ' +
         'drives these tools autonomously, validates each step, captures screenshots on screen changes, ' +
-        'and produces a markdown report. Install it with: npx tui-harness-mcp install-agent',
+        'and can produce walkthrough videos. Install the agent and video skill with: npx tui-harness-mcp install-all',
     }
   );
 
@@ -517,6 +665,179 @@ export function createServer(): McpServer {
     async args => {
       return await handleLaunch(args);
     }
+  );
+
+  // --- tui_record_start ---
+  server.registerTool(
+    TOOL_NAMES.RECORD_START,
+    {
+      title: 'Start Demo Recording',
+      description:
+        'Start recording timestamped PTY output for a session. The settled initial screen is included. ' +
+        'Typed input is excluded by default to avoid capturing secrets.',
+      inputSchema: {
+        sessionId: z.string().describe('The session ID returned by tui_launch.'),
+        captureInput: z
+          .boolean()
+          .optional()
+          .describe('Record raw typed input for documentation purposes (default: false). May capture secrets.'),
+      },
+      annotations: {
+        openWorldHint: true,
+      },
+    },
+    args => handleRecordStart(args)
+  );
+
+  // --- tui_record_mark ---
+  server.registerTool(
+    TOOL_NAMES.RECORD_MARK,
+    {
+      title: 'Mark Demo Recording',
+      description:
+        'Add a semantic cue to an active recording. Cues can label a step, show a caption, synthesize narration, ' +
+        'use an existing audio file, and hold the current screen for a requested duration.',
+      inputSchema: {
+        sessionId: z.string().describe('The session ID returned by tui_launch.'),
+        label: z.string().max(200).optional().describe('Short internal name for this walkthrough step.'),
+        caption: z.string().max(2000).optional().describe('Text rendered visibly below the terminal.'),
+        narration: z
+          .string()
+          .max(3000)
+          .optional()
+          .describe('Narration script. Also used as the caption when caption is omitted.'),
+        audioPath: z
+          .string()
+          .optional()
+          .describe('Existing narration audio file. Takes precedence over synthesized narration for this marker.'),
+        holdMs: z
+          .number()
+          .int()
+          .min(0)
+          .max(120000)
+          .optional()
+          .describe('Minimum time to freeze the marked screen during rendering (default: 0).'),
+      },
+      annotations: {
+        openWorldHint: true,
+      },
+    },
+    args => handleRecordMark(args)
+  );
+
+  // --- tui_record_stop ---
+  server.registerTool(
+    TOOL_NAMES.RECORD_STOP,
+    {
+      title: 'Stop Demo Recording',
+      description: 'Stop an active recording and save its versioned JSON artifact to disk.',
+      inputSchema: {
+        sessionId: z.string().describe('The session ID returned by tui_launch.'),
+        savePath: z
+          .string()
+          .describe('Path for the recording JSON. Parent directories are created and an existing file is overwritten.'),
+      },
+      annotations: {
+        destructiveHint: true,
+      },
+    },
+    async args => await handleRecordStop(args)
+  );
+
+  // --- tui_demo_render ---
+  server.registerTool(
+    TOOL_NAMES.DEMO_RENDER,
+    {
+      title: 'Render TUI Demo Video',
+      description:
+        'Render a recording as a captioned MP4 or WebM. The native renderer preserves full motion; the Mac renderer ' +
+        'uses semantic keyframes and makes Mac (Meme as Code) own scene composition, timing, captions, and transitions. ' +
+        'Uses FFmpeg and ffprobe. ' +
+        'When pollyVoiceId is set, narration text is synthesized with Amazon Polly through the AWS CLI.',
+      inputSchema: {
+        recordingPath: z.string().describe('Path to a recording JSON created by tui_record_stop.'),
+        outputPath: z.string().describe('Destination .mp4 or .webm path. Parent directories are created.'),
+        format: z.enum(['mp4', 'webm']).optional().describe('Video container; inferred from outputPath by default.'),
+        renderer: z
+          .enum(['native', 'mac'])
+          .optional()
+          .describe('Visual renderer. Native preserves full motion; Mac composes marked semantic scenes (default: native).'),
+        fps: z.number().int().min(1).max(60).optional().describe('Output frame rate (default: 30).'),
+        theme: z.enum(['dark', 'light']).optional().describe('Terminal color theme (default: dark).'),
+        title: z.string().max(200).optional().describe('Window title shown in the rendered terminal chrome.'),
+        fontSize: z.number().min(8).max(48).optional().describe('Terminal font size in pixels (default: 16).'),
+        tailHoldMs: z
+          .number()
+          .int()
+          .min(0)
+          .max(60000)
+          .optional()
+          .describe('Time to hold the final screen (default: 1000).'),
+        captions: z.boolean().optional().describe('Render captions and write a sidecar SRT file (default: true).'),
+        pollyVoiceId: z
+          .string()
+          .optional()
+          .describe('Amazon Polly voice ID. When omitted, narration text remains caption-only.'),
+        pollyEngine: z.enum(['standard', 'neural', 'long-form', 'generative']).optional(),
+        awsProfile: z.string().optional().describe('AWS CLI profile used for Polly synthesis.'),
+        awsRegion: z.string().optional().describe('AWS region used for Polly synthesis.'),
+        narrationOutputPath: z
+          .string()
+          .optional()
+          .describe('Optional .wav, .mp3, or .m4a path for the assembled loudness-normalized narration track.'),
+        macPath: z
+          .string()
+          .optional()
+          .describe('Mac (Meme as Code) executable path when renderer is mac (default: mac from PATH).'),
+        macTransition: z
+          .enum(['crossfade', 'slideLeft', 'slideRight', 'slideUp', 'slideDown', 'wipe', 'fadeBlack', 'zoom'])
+          .optional()
+          .describe('Transition between Mac semantic scenes (default: crossfade).'),
+        macTransitionMs: z
+          .number()
+          .int()
+          .min(0)
+          .max(5000)
+          .optional()
+          .describe('Requested Mac transition duration in milliseconds (default: 500).'),
+        macEasing: z
+          .enum(['linear', 'easeIn', 'easeOut', 'easeInOut'])
+          .optional()
+          .describe('Mac transition easing (default: easeInOut).'),
+        macCaptionFontSize: z
+          .number()
+          .min(10)
+          .max(96)
+          .optional()
+          .describe('Mac caption font size in pixels (default: 24).'),
+        macNarrationPaddingMs: z
+          .number()
+          .int()
+          .min(0)
+          .max(10000)
+          .optional()
+          .describe('Silence retained after each narration clip in Mac scenes (default: 300).'),
+        macProgramFileName: z
+          .string()
+          .optional()
+          .describe('Plain .mac filename generated in workDir (default: demo.mac).'),
+        ffmpegPath: z.string().optional().describe('FFmpeg executable path (default: ffmpeg from PATH).'),
+        ffprobePath: z.string().optional().describe('ffprobe executable path (default: ffprobe from PATH).'),
+        keepWorkDir: z
+          .boolean()
+          .optional()
+          .describe('Retain generated frames, narration, and Mac source artifacts for inspection.'),
+        workDir: z
+          .string()
+          .optional()
+          .describe('Specific work directory. Use a durable path to preserve generated Mac source and its manifest.'),
+      },
+      annotations: {
+        destructiveHint: true,
+        openWorldHint: true,
+      },
+    },
+    async args => await handleDemoRender(args)
   );
 
   // --- tui_send_keys ---

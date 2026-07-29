@@ -127,6 +127,27 @@ describe('SVG renderer', () => {
     expect(svg).toContain('lengthAdjust="spacingAndGlyphs"');
   });
 
+  it('reserves a fixed caption footer and escapes caption text', async () => {
+    terminal = new Terminal({ cols: 40, rows: 10, allowProposedApi: true });
+    await write(terminal, 'test');
+
+    const withoutCaption = renderTerminalToSvg(terminal, {
+      captionHeight: 56,
+      embedFont: false,
+    });
+    const withCaption = renderTerminalToSvg(terminal, {
+      captionHeight: 56,
+      captionText: 'Review <the> deployment & continue.',
+      embedFont: false,
+    });
+
+    expect(withCaption).toContain('Review &lt;the&gt; deployment &amp; continue.');
+    expect(withCaption).toContain(`class="terminal-text" fill="${DARK_THEME.foreground}"`);
+    expect(withCaption.match(/height="([^"]+)"/)?.[1]).toBe(
+      withoutCaption.match(/height="([^"]+)"/)?.[1]
+    );
+  });
+
   function createTerminal() {
     return new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
   }

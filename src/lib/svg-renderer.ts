@@ -29,6 +29,8 @@ export interface SvgRenderOptions {
   title?: string;
   padding?: number;
   borderRadius?: number;
+  captionText?: string;
+  captionHeight?: number;
 }
 
 interface CellStyle {
@@ -64,6 +66,8 @@ interface ResolvedRenderOptions {
   title: string;
   padding: number;
   borderRadius: number;
+  captionText: string;
+  captionHeight: number;
 }
 
 export function renderTerminalToSvg(terminal: Terminal, options?: SvgRenderOptions): string {
@@ -82,6 +86,8 @@ export function renderTerminalToSvg(terminal: Terminal, options?: SvgRenderOptio
     title,
     padding,
     borderRadius,
+    captionText,
+    captionHeight,
   } = resolved;
   const buffer = terminal.buffer.active;
   const cols = terminal.cols;
@@ -91,7 +97,7 @@ export function renderTerminalToSvg(terminal: Terminal, options?: SvgRenderOptio
   const contentWidth = cols * charWidth;
   const contentHeight = rows * lineHeight;
   const totalWidth = contentWidth + padding * 2;
-  const totalHeight = contentHeight + padding * 2 + chromeHeight;
+  const totalHeight = contentHeight + padding * 2 + chromeHeight + captionHeight;
   const cursorX = buffer.cursorX;
   const cursorY = buffer.cursorY;
   const rowSpans: Span[][] = [];
@@ -238,13 +244,42 @@ export function renderTerminalToSvg(terminal: Terminal, options?: SvgRenderOptio
     }
   }
 
-  svg.push('</g>', '</svg>');
+  svg.push('</g>');
+
+  if (captionHeight > 0) {
+    const captionTop = chromeHeight + padding * 2 + contentHeight;
+    svg.push(
+      `<line x1="0" y1="${formatMetric(captionTop)}" x2="${formatMetric(totalWidth)}" y2="${formatMetric(captionTop)}" stroke="${theme.foreground}" stroke-opacity="0.15"/>`
+    );
+
+    if (captionText) {
+      const captionFontSize = Math.max(12, fontSize);
+      const maxCharacters = Math.max(
+        10,
+        Math.floor(contentWidth / (captionFontSize * profile.cellWidthRatio)) - 4
+      );
+      const lines = wrapCaption(captionText, maxCharacters);
+      const captionLineHeight = Math.ceil(captionFontSize * 1.25);
+      const blockHeight = lines.length * captionLineHeight;
+      const firstBaseline =
+        captionTop + (captionHeight - blockHeight) / 2 + captionFontSize;
+
+      for (let index = 0; index < lines.length; index++) {
+        svg.push(
+          `<text x="50%" y="${formatMetric(firstBaseline + index * captionLineHeight)}" text-anchor="middle" class="terminal-text" fill="${theme.foreground}" font-size="${captionFontSize}px">${escapeXml(lines[index]!)}</text>`
+        );
+      }
+    }
+  }
+
+  svg.push('</svg>');
   return svg.join('\n');
 }
 
 function resolveOptions(options?: SvgRenderOptions): ResolvedRenderOptions {
   const profile = options?.profile ?? DARK_TERMINAL_PROFILE;
   const fontSize = options?.fontSize ?? profile.fontSize;
+  const captionText = options?.captionText?.trim() ?? '';
 
   return {
     profile,
@@ -260,6 +295,8 @@ function resolveOptions(options?: SvgRenderOptions): ResolvedRenderOptions {
     title: options?.title ?? '',
     padding: options?.padding ?? profile.padding,
     borderRadius: options?.borderRadius ?? profile.borderRadius,
+    captionText,
+    captionHeight: Math.max(0, options?.captionHeight ?? (captionText ? 56 : 0)),
   };
 }
 
@@ -270,7 +307,9 @@ function resolveCellStyle(
   isCursorCell: boolean
 ): CellStyle {
   const bold = cell.isBold() !== 0;
-  let fg = resolveColor(cell, 'fg', theme, bold && profile.drawBoldTextInBrightColors) ?? theme.foreground;
+  let fg =
+    resolveColor(cell, 'fg', theme, bold && profile.drawBoldTextInBrightColors) ??
+    theme.foreground;
   let bg = resolveColor(cell, 'bg', theme, false) ?? theme.background;
 
   if (cell.isInverse() !== 0) {
@@ -344,7 +383,8 @@ function blendHex(foreground: string, background: string, opacity: number): stri
     return foreground;
   }
 
-  const channel = (front: number, back: number) => Math.round(front * opacity + back * (1 - opacity));
+  const channel = (front: number, back: number) =>
+    Math.round(front * opacity + back * (1 - opacity));
   return `#${[channel(fg.r, bg.r), channel(fg.g, bg.g), channel(fg.b, bg.b)]
     .map(value => value.toString(16).padStart(2, '0'))
     .join('')}`;
@@ -374,6 +414,52 @@ function stylesMatch(left: CellStyle, right: CellStyle): boolean {
     left.overline === right.overline &&
     left.invisible === right.invisible
   );
+}
+
+function wrapCaption(text: string, maxCharacters: number): string[] {
+  const words = text
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .flatMap(word => {
+      if (word.length <= maxCharacters) {
+        return [word];
+      }
+      const segments: string[] = [];
+      for (let index = 0; index < word.length; index += maxCharacters) {
+        segments.push(word.slice(index, index + maxCharacters));
+      }
+      return segments;
+    });
+  if (words.length === 0) {
+    return [];
+  }
+
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length <= maxCharacters || current.length === 0) {
+      current = candidate;
+      continue;
+    }
+    lines.push(current);
+    current = word;
+  }
+  if (current) {
+    lines.push(current);
+  }
+
+  if (lines.length <= 2) {
+    return lines;
+  }
+
+  const secondLine = lines.slice(1).join(' ');
+  const truncated =
+    secondLine.length <= maxCharacters
+      ? secondLine
+      : `${secondLine.slice(0, Math.max(1, maxCharacters - 3)).trimEnd()}...`;
+  return [lines[0]!, truncated];
 }
 
 function escapeXml(text: string): string {

@@ -1,0 +1,4 @@
+interface:
+  display_name: "TUI Demo Video"
+  short_description: "Create polished narrated TUI walkthrough videos"
+  default_prompt: "Use $tui-demo-video to create a narrated product demo video for this TUI flow."

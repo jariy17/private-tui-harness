@@ -4,7 +4,7 @@ MCP server for programmatically driving any TUI application via headless pseudo-
 
 ## What it does
 
-Spawns any command in a pseudo-terminal, pipes its output through a headless xterm emulator, and exposes tools to send keystrokes, read the screen, wait for patterns, and take screenshots — all via the [Model Context Protocol](https://modelcontextprotocol.io).
+Spawns any command in a pseudo-terminal, pipes its output through a headless xterm emulator, and exposes tools to send keystrokes, read the screen, wait for patterns, take screenshots, and create narrated walkthrough videos - all via the [Model Context Protocol](https://modelcontextprotocol.io).
 
 Works with any TUI: vim, htop, lazygit, Ink apps, custom CLIs, etc.
 
@@ -50,6 +50,10 @@ Or add to `.mcp.json`:
 | `tui_read_screen` | Read the current terminal screen content. |
 | `tui_wait_for` | Wait for text/regex to appear on screen. |
 | `tui_screenshot` | Capture text, self-contained SVG, or deterministic PNG. Optionally write it to disk. |
+| `tui_record_start` | Start capturing timestamped PTY output and semantic markers. |
+| `tui_record_mark` | Add a caption, narration cue, audio cue, or timed hold. |
+| `tui_record_stop` | Stop recording and save a versioned JSON artifact. |
+| `tui_demo_render` | Replay a recording into a captioned or narrated MP4/WebM. |
 | `tui_close` | Close a session and terminate its process. |
 | `tui_list_sessions` | List retained sessions and their current liveness. |
 
@@ -62,6 +66,8 @@ Or add to `.mcp.json`:
 - `tui_screenshot.savePath` writes the screenshot to the requested path and overwrites an existing file.
 - SVG and PNG screenshots use a packaged 16px DejaVu Sans Mono profile and high-contrast ANSI palette, so font metrics and raster output do not depend on the host's installed fonts.
 - `tui_screenshot` accepts `theme`, `fontSize`, `showWindowChrome`, and `title` for visual output. PNG responses include an MCP image unless `returnContent` is false.
+- Demo input capture is disabled by default. Save an active recording before closing its session.
+- Narration audio automatically extends a marked hold so speech is never cut short.
 
 ## Library Usage
 
@@ -97,6 +103,15 @@ const { png, width, height } = session.screenshotPng({
   showWindowChrome: false,
 });
 
+// Record a reusable walkthrough artifact
+session.startDemoRecording();
+session.markDemoRecording({
+  caption: 'Review the deployment plan.',
+  narration: 'Review the plan before starting the deployment.',
+  holdMs: 1000,
+});
+const recording = await session.stopDemoRecording('./demo.recording.json');
+
 // Clean up
 await session.close();
 ```
@@ -118,6 +133,14 @@ src/
 │   ├── font-assets.ts    # Packaged font loading and SVG embedding
 │   ├── session-manager.ts # Global session registry + cleanup
 │   └── availability.ts   # node-pty availability check
+├── demo/
+│   ├── recorder.ts       # Versioned, bounded recording artifacts
+│   ├── replay.ts         # Deterministic timeline and frame replay
+│   ├── mac.ts            # Semantic keyframes and Mac program generation
+│   ├── rasterizer.ts     # SVG to PNG conversion
+│   ├── narration.ts      # Existing audio and Amazon Polly
+│   ├── ffmpeg.ts         # Media probing and video encoding
+│   └── render.ts         # End-to-end render orchestration
 ├── mcp/
 │   ├── index.ts          # CLI entry point (HTTP or stdio)
 │   ├── launchd.ts        # launchd environment and plist helpers
@@ -139,6 +162,61 @@ src/
 - **Bundled font faces** remove system-font substitution while retaining system fonts only as fallback for glyphs outside DejaVu's coverage
 - **HTTP transport** recommended for Claude Code (stdio transport blocks PTY spawning inside the sandbox)
 - **Exited-session retention** keeps final screens inspectable without reducing the live-session allowance
+- **Raw PTY recordings** preserve real rendering behavior while semantic markers control captions, narration, and pacing
+- **Deterministic replay** reconstructs every frame through xterm and renders it with the existing SVG terminal renderer
+
+## Demo Videos
+
+Install FFmpeg, then record a flow through the MCP tools:
+
+1. `tui_launch`
+2. `tui_record_start`
+3. Drive the product and call `tui_record_mark` on meaningful screens
+4. `tui_record_stop`
+5. `tui_close`
+6. `tui_demo_render`
+
+The recording JSON is independent from the video. Rerender it with a different theme, title, frame rate, voice, or output format without running the TUI again.
+
+Two visual renderers are available:
+
+- `native` replays every PTY update for full-motion terminal video.
+- `mac` exports each semantic marker as a terminal keyframe, then uses [Mac (Meme as Code)](https://github.com/jona62/mac) to compose captions, holds, and transitions. FFmpeg only encodes the Mac visual master and muxes narration.
+
+Render an existing recording from the command line:
+
+```bash
+npx tui-harness-mcp render-demo ./demo.recording.json \
+  --output ./demo.mp4 \
+  --title "Product walkthrough"
+```
+
+Render a polished semantic walkthrough through Mac and preserve its source:
+
+```bash
+npx tui-harness-mcp render-demo ./demo.recording.json \
+  --output ./demo.mp4 \
+  --renderer mac \
+  --mac-path /path/to/mac \
+  --work-dir ./demo-mac \
+  --polly-voice Joanna \
+  --polly-engine neural \
+  --aws-profile deploy
+```
+
+The durable work directory contains `source-frames/`, the generated `.mac` program, `manifest.json`, synthesized narration clips, and `visual-master.gif`.
+
+Use an existing audio file in a marker, or synthesize every marker's `narration` text with Amazon Polly:
+
+```bash
+npx tui-harness-mcp render-demo ./demo.recording.json \
+  --output ./demo.mp4 \
+  --polly-voice Joanna \
+  --polly-engine neural \
+  --aws-profile deploy
+```
+
+Captions are visible in a fixed footer and are also written to a sidecar SRT file. See [docs/demo-recording.md](docs/demo-recording.md) for the recording format, security guidance, and full API.
 
 ## Transport Modes
 
@@ -222,10 +300,10 @@ The server ships with a Claude Code agent that can execute multi-step TUI flows 
 ### Install the agent
 
 ```bash
-npx tui-harness-mcp install-agent
+npx tui-harness-mcp install-all
 ```
 
-This copies the agent definition to `~/.claude/agents/tui-flow-executor.md`, making it available globally in Claude Code.
+This installs the Claude Code flow executor and the `tui-demo-video` skill for both Codex and Claude Code. Use `install-agent` or `install-skill` to install only one component.
 
 ### How it works
 
@@ -267,6 +345,9 @@ SCREENSHOTS: /tmp/deploy-report/screenshots/
 
 - Node.js >= 20
 - A C++ toolchain for `node-pty` native compilation (Xcode CLI tools on macOS, build-essential on Linux)
+- FFmpeg for demo video rendering
+- Optional: Mac (Meme as Code) for semantic scene composition
+- Optional: AWS CLI and Amazon Polly access for synthesized narration
 
 ## Development
 
@@ -275,4 +356,4 @@ npm ci
 npm test
 ```
 
-The test command builds the package first, then covers PTY/xterm integration, MCP tool behavior, screenshot output, session lifecycle, web-console cleanup, request security, launchd configuration, and packaged CLI execution.
+The test command builds the package first, then covers PTY/xterm integration, MCP tool behavior, screenshot output, session lifecycle, demo recording and replay, web-console cleanup, request security, launchd configuration, and packaged CLI execution.

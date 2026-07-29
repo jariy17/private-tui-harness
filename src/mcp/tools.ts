@@ -32,6 +32,10 @@ export const TOOL_NAMES = {
   CLOSE: 'tui_close',
   LIST_SESSIONS: 'tui_list_sessions',
   ACTION: 'tui_action',
+  RECORD_START: 'tui_record_start',
+  RECORD_MARK: 'tui_record_mark',
+  RECORD_STOP: 'tui_record_stop',
+  DEMO_RENDER: 'tui_demo_render',
 } as const;
 
 // ---------------------------------------------------------------------------

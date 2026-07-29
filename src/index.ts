@@ -46,3 +46,44 @@ export type { SvgRenderOptions, SvgTheme, TerminalVisualProfile } from './lib/sv
 // --- PNG Screenshots ---
 export { rasterizeTerminalSvg, renderTerminalToPng } from './lib/terminal-rasterizer.js';
 export type { RasterizedTerminalImage } from './lib/terminal-rasterizer.js';
+
+// --- Demo recording and rendering ---
+export { DemoRecorder, assertDemoRecording, readDemoRecording, saveDemoRecording } from './demo/recorder.js';
+export { buildDemoTimeline, captionAt, replayDemoFrames } from './demo/replay.js';
+export { buildMacProgram, exportDemoKeyframes, renderMacVisual } from './demo/mac.js';
+export type {
+  ExportDemoKeyframesOptions,
+  RenderMacVisualOptions,
+  RenderMacVisualResult,
+} from './demo/mac.js';
+export { rasterizeSvg } from './demo/rasterizer.js';
+export { renderDemo } from './demo/render.js';
+export { DEMO_RECORDING_VERSION } from './demo/types.js';
+export type {
+  DemoExitEvent,
+  DemoInputEvent,
+  DemoKeyframe,
+  DemoKeyframeExportResult,
+  DemoMacEasing,
+  DemoMacManifest,
+  DemoMacOptions,
+  DemoMacScene,
+  DemoMacTransition,
+  DemoMarkerEvent,
+  DemoMarkerOptions,
+  DemoOutputEvent,
+  DemoPollyOptions,
+  DemoRecording,
+  DemoRecordingCapture,
+  DemoRecordingEvent,
+  DemoRecordingMetadata,
+  DemoRecordingOptions,
+  DemoRecordingResult,
+  DemoRecordingStatus,
+  DemoRenderOptions,
+  DemoRenderResult,
+  DemoRenderer,
+  DemoTimeline,
+  DemoTimelineMarker,
+  PreparedNarrationClip,
+} from './demo/types.js';

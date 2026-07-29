@@ -10,6 +10,7 @@ const execFileAsync = promisify(execFile);
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const entryPoint = join(projectRoot, 'dist', 'mcp', 'index.js');
 const agentSource = join(projectRoot, 'agents', 'tui-flow-executor.md');
+const skillSource = join(projectRoot, 'skills', 'tui-demo-video', 'SKILL.md');
 
 describe('npm CLI', () => {
   let tempHome: string | undefined;
@@ -42,5 +43,37 @@ describe('npm CLI', () => {
     ]);
 
     expect(actual).toBe(expected);
+  });
+
+  it('installs the demo skill for Codex and Claude Code', async () => {
+    tempHome = await mkdtemp(join(tmpdir(), 'tui-harness-cli-'));
+
+    await execFileAsync(entryPoint, ['install-skill'], {
+      env: {
+        ...process.env,
+        HOME: tempHome,
+        CODEX_HOME: join(tempHome, '.codex'),
+        CLAUDE_CONFIG_DIR: join(tempHome, '.claude'),
+      },
+    });
+
+    const [expected, codexSkill, claudeSkill] = await Promise.all([
+      readFile(skillSource, 'utf-8'),
+      readFile(join(tempHome, '.codex', 'skills', 'tui-demo-video', 'SKILL.md'), 'utf-8'),
+      readFile(join(tempHome, '.claude', 'skills', 'tui-demo-video', 'SKILL.md'), 'utf-8'),
+    ]);
+    expect(codexSkill).toBe(expected);
+    expect(claudeSkill).toBe(expected);
+  });
+
+  it('documents the render-demo command through the packaged executable', async () => {
+    const { stdout } = await execFileAsync(process.execPath, [entryPoint, 'render-demo', '--help']);
+
+    expect(stdout).toContain('Usage: tui-harness-mcp render-demo');
+    expect(stdout).toContain('--renderer <native|mac>');
+    expect(stdout).toContain('--mac-path');
+    expect(stdout).toContain('--polly-voice');
+    expect(stdout).toContain('--narration-output');
+    expect(stdout).toContain('--ffmpeg');
   });
 });

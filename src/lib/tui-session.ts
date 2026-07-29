@@ -20,6 +20,14 @@ import { renderTerminalToPng } from './terminal-rasterizer.js';
 import type { RasterizedTerminalImage } from './terminal-rasterizer.js';
 import { renderTerminalToSvg } from './svg-renderer.js';
 import type { SvgRenderOptions } from './svg-renderer.js';
+import { DemoRecorder, saveDemoRecording } from '../demo/recorder.js';
+import type {
+  DemoMarkerEvent,
+  DemoMarkerOptions,
+  DemoRecordingOptions,
+  DemoRecordingResult,
+  DemoRecordingStatus,
+} from '../demo/types.js';
 import type {
   CloseResult,
   LaunchOptions,
@@ -41,6 +49,14 @@ import * as pty from 'node-pty';
 
 const { Terminal } = xtermHeadless;
 type Terminal = InstanceType<typeof Terminal>;
+
+const MAX_INITIAL_OUTPUT_BYTES = 1024 * 1024;
+
+interface OutputHistory {
+  chunks: string[];
+  bytes: number;
+  droppedBytes: number;
+}
 
 /**
  * Map from numeric signal values to POSIX signal names.
@@ -82,6 +98,8 @@ export class TuiSession {
   private readonly cwd: string;
   private readonly created: Date;
   private readonly disposables: { dispose(): void }[];
+  private readonly outputHistory: OutputHistory;
+  private demoRecorder: DemoRecorder | undefined;
   private _alive: boolean;
   private _exitCode: number | null;
   private _exitSignal: string | null;
@@ -95,7 +113,8 @@ export class TuiSession {
     args: string[],
     cwd: string,
     created: Date,
-    disposables: { dispose(): void }[]
+    disposables: { dispose(): void }[],
+    outputHistory: OutputHistory
   ) {
     this._sessionId = sessionId;
     this.terminal = terminal;
@@ -106,6 +125,7 @@ export class TuiSession {
     this.cwd = cwd;
     this.created = created;
     this.disposables = disposables;
+    this.outputHistory = outputHistory;
     this._alive = true;
     this._exitCode = null;
     this._exitSignal = null;
@@ -136,6 +156,8 @@ export class TuiSession {
     const args = options.args ?? [];
     const created = new Date();
     const disposables: { dispose(): void }[] = [];
+    const outputHistory: OutputHistory = { chunks: [], bytes: 0, droppedBytes: 0 };
+    let session: TuiSession | undefined;
 
     // 1. Create the headless terminal emulator.
     const terminal = new Terminal({ cols, rows, allowProposedApi: true });
@@ -156,6 +178,16 @@ export class TuiSession {
 
     // 3. Wire PTY output into xterm.
     const dataDisposable = ptyProcess.onData((data: string) => {
+      const bytes = Buffer.byteLength(data);
+      outputHistory.chunks.push(data);
+      outputHistory.bytes += bytes;
+      while (outputHistory.bytes > MAX_INITIAL_OUTPUT_BYTES && outputHistory.chunks.length > 0) {
+        const removed = outputHistory.chunks.shift()!;
+        const removedBytes = Buffer.byteLength(removed);
+        outputHistory.bytes -= removedBytes;
+        outputHistory.droppedBytes += removedBytes;
+      }
+      session?.demoRecorder?.recordOutput(data);
       terminal.write(data);
     });
     disposables.push(dataDisposable);
@@ -202,7 +234,7 @@ export class TuiSession {
     });
 
     // 7. Create the session instance (private constructor).
-    const session = new TuiSession(
+    session = new TuiSession(
       sessionId,
       terminal,
       ptyProcess,
@@ -211,7 +243,8 @@ export class TuiSession {
       args,
       cwd,
       created,
-      disposables
+      disposables,
+      outputHistory
     );
 
     // 8. Race initial settle against process exit.
@@ -233,11 +266,13 @@ export class TuiSession {
       session._alive = false;
       session._exitCode = earlyExitCode;
       session._exitSignal = earlyExitSignal;
+      session.demoRecorder?.recordExit(earlyExitCode, earlyExitSignal);
     } else {
       void exitPromise.then(() => {
         session._alive = false;
         session._exitCode = earlyExitCode;
         session._exitSignal = earlyExitSignal;
+        session.demoRecorder?.recordExit(earlyExitCode, earlyExitSignal);
       });
     }
 
@@ -310,6 +345,67 @@ export class TuiSession {
   }
 
   // ---------------------------------------------------------------------------
+  // Demo recording
+  // ---------------------------------------------------------------------------
+
+  /** Start recording PTY output and semantic demo markers for this session. */
+  startDemoRecording(options: DemoRecordingOptions = {}): DemoRecordingStatus {
+    this.assertAlive();
+    if (this.demoRecorder) {
+      throw new Error(`Session ${this._sessionId} is already recording.`);
+    }
+
+    this.demoRecorder = new DemoRecorder(
+      {
+        command: this.command,
+        args: [...this.args],
+        cwd: this.cwd,
+        cols: this.terminal.cols,
+        rows: this.terminal.rows,
+        startedAt: new Date().toISOString(),
+      },
+      {
+        data: this.outputHistory.chunks.join(''),
+        droppedBytes: this.outputHistory.droppedBytes,
+      },
+      options
+    );
+    return this.demoRecorder.status;
+  }
+
+  /** Add a caption, narration cue, audio cue, or timed hold to the active recording. */
+  markDemoRecording(options: DemoMarkerOptions): DemoMarkerEvent {
+    if (!this.demoRecorder) {
+      throw new Error(`Session ${this._sessionId} is not recording.`);
+    }
+    return this.demoRecorder.mark(options);
+  }
+
+  /** Stop the active recording and persist its versioned JSON artifact. */
+  async stopDemoRecording(path: string): Promise<DemoRecordingResult> {
+    if (!this.demoRecorder) {
+      throw new Error(`Session ${this._sessionId} is not recording.`);
+    }
+
+    const recorder = this.demoRecorder;
+    const recording = recorder.stop(
+      this._alive
+        ? undefined
+        : {
+            exitCode: this._exitCode,
+            signal: this._exitSignal,
+          }
+    );
+    this.demoRecorder = undefined;
+    return await saveDemoRecording(recording, path);
+  }
+
+  /** Current recording status, or undefined when no recording is active. */
+  get demoRecordingStatus(): DemoRecordingStatus | undefined {
+    return this.demoRecorder?.status;
+  }
+
+  // ---------------------------------------------------------------------------
   // Input methods
   // ---------------------------------------------------------------------------
 
@@ -318,6 +414,7 @@ export class TuiSession {
    */
   async sendKeys(keys: string, waitMs?: number): Promise<SendResult> {
     this.assertAlive();
+    this.demoRecorder?.recordInput(keys);
     this.ptyProcess.write(keys);
     const settled = await this.settlingMonitor.waitForSettle(waitMs);
     return { screen: this.readScreen(), settled };
@@ -329,6 +426,7 @@ export class TuiSession {
   async sendSpecialKey(key: SpecialKey, waitMs?: number): Promise<SendResult> {
     this.assertAlive();
     const sequence = resolveKey(key);
+    this.demoRecorder?.recordInput(sequence, key);
     this.ptyProcess.write(sequence);
     const settled = await this.settlingMonitor.waitForSettle(waitMs);
     return { screen: this.readScreen(), settled };

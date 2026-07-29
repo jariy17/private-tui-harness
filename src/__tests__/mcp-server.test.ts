@@ -103,10 +103,15 @@ describe('MCP server', () => {
     const launchProperties = launch?.inputSchema.properties as
       | Record<string, { description?: string }>
       | undefined;
+    const recordStop = tools.find(tool => tool.name === 'tui_record_stop');
+    const demoRender = tools.find(tool => tool.name === 'tui_demo_render');
     const sendKeysProperties = sendKeys?.inputSchema.properties as
       | Record<string, { description?: string }>
       | undefined;
     const waitForProperties = waitFor?.inputSchema.properties as
+      | Record<string, { description?: string }>
+      | undefined;
+    const demoRenderProperties = demoRender?.inputSchema.properties as
       | Record<string, { description?: string }>
       | undefined;
 
@@ -117,6 +122,14 @@ describe('MCP server', () => {
     expect(screenshot?.annotations).toMatchObject({
       readOnlyHint: false,
       destructiveHint: true,
+    });
+    expect(recordStop?.annotations).toMatchObject({ destructiveHint: true });
+    expect(demoRenderProperties?.renderer?.description).toContain('Mac');
+    expect(demoRenderProperties?.macPath?.description).toContain('Meme as Code');
+    expect(demoRenderProperties?.workDir?.description).toContain('generated Mac source');
+    expect(demoRender?.annotations).toMatchObject({
+      destructiveHint: true,
+      openWorldHint: true,
     });
   });
 
@@ -209,6 +222,64 @@ describe('MCP server', () => {
     for (const sessionId of sessionIds) {
       await client.callTool({ name: 'tui_close', arguments: { sessionId } });
     }
+  });
+
+  it('records a marked flow, saves it, and requires saving before close', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'tui-harness-recording-'));
+    const recordingPath = join(tempDir, 'flow.recording.json');
+    const script = "stty -echo; printf 'READY\\n'; IFS= read -r value; printf 'DONE\\n'; IFS= read -r finish";
+    const launched = parseToolResult(
+      await client.callTool({
+        name: 'tui_launch',
+        arguments: { command: '/bin/sh', args: ['-c', script], cols: 80, rows: 24 },
+      })
+    );
+    const sessionId = launched.sessionId as string;
+
+    const started = parseToolResult(
+      await client.callTool({
+        name: 'tui_record_start',
+        arguments: { sessionId },
+      })
+    );
+    expect(started.recording).toMatchObject({ active: true, captureInput: false });
+
+    await client.callTool({
+      name: 'tui_record_mark',
+      arguments: {
+        sessionId,
+        caption: 'Continue the flow.',
+        narration: 'Continue to the completed state.',
+        holdMs: 250,
+      },
+    });
+
+    const prematureClose = await client.callTool({
+      name: 'tui_close',
+      arguments: { sessionId },
+    });
+    expect(prematureClose.isError).toBe(true);
+
+    await client.callTool({
+      name: 'tui_action',
+      arguments: { sessionId, keys: 'hidden\r', pattern: 'DONE', timeoutMs: 2000 },
+    });
+    const stopped = parseToolResult(
+      await client.callTool({
+        name: 'tui_record_stop',
+        arguments: { sessionId, savePath: recordingPath },
+      })
+    );
+    expect(stopped).toMatchObject({ path: recordingPath, captureInput: false, truncated: false });
+
+    const recording = JSON.parse(await readFile(recordingPath, 'utf-8')) as {
+      events: Array<{ type: string; data?: string }>;
+    };
+    expect(recording.events.some(event => event.type === 'marker')).toBe(true);
+    expect(recording.events.some(event => event.type === 'input')).toBe(false);
+
+    await client.callTool({ name: 'tui_send_keys', arguments: { sessionId, keys: 'finish\r' } });
+    await client.callTool({ name: 'tui_close', arguments: { sessionId } });
   });
 
   it('removes sessions closed through the web console and does not emit wildcard CORS', async () => {

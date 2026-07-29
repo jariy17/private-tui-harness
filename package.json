@@ -1,13 +1,15 @@
 {
   "name": "tui-harness-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "MCP server for programmatically driving any TUI application via headless pseudo-terminals",
   "type": "module",
   "main": "dist/index.js",
   "files": [
     "dist",
     "agents",
-    "assets"
+    "assets",
+    "skills",
+    "docs"
   ],
   "bin": {
     "tui-harness-mcp": "dist/mcp/index.js"
