@@ -14,6 +14,7 @@ import {
   getTuiSession,
   listTuiSessions,
 } from '../mcp/server.js';
+import { DEFAULT_TERMINAL_COLS, DEFAULT_TERMINAL_ROWS } from '../index.js';
 import { createWebConsoleHandler } from '../web/routes.js';
 
 function parseToolResult(result: unknown): Record<string, any> {
@@ -95,9 +96,13 @@ describe('MCP server', () => {
 
   it('publishes accurate defaults and filesystem-write annotations', async () => {
     const { tools } = await client.listTools();
+    const launch = tools.find(tool => tool.name === 'tui_launch');
     const sendKeys = tools.find(tool => tool.name === 'tui_send_keys');
     const waitFor = tools.find(tool => tool.name === 'tui_wait_for');
     const screenshot = tools.find(tool => tool.name === 'tui_screenshot');
+    const launchProperties = launch?.inputSchema.properties as
+      | Record<string, { description?: string }>
+      | undefined;
     const sendKeysProperties = sendKeys?.inputSchema.properties as
       | Record<string, { description?: string }>
       | undefined;
@@ -105,6 +110,8 @@ describe('MCP server', () => {
       | Record<string, { description?: string }>
       | undefined;
 
+    expect(launchProperties?.cols?.description).toContain(`default: ${DEFAULT_TERMINAL_COLS}`);
+    expect(launchProperties?.rows?.description).toContain(`default: ${DEFAULT_TERMINAL_ROWS}`);
     expect(sendKeysProperties?.waitMs?.description).toContain('default: 100');
     expect(waitForProperties?.timeoutMs?.description).toContain('default: 10000');
     expect(screenshot?.annotations).toMatchObject({
@@ -116,6 +123,7 @@ describe('MCP server', () => {
   it('drives a PTY, saves a screenshot, and closes the session', async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'tui-harness-mcp-'));
     const screenshotPath = join(tempDir, 'screen.svg');
+    const pngPath = join(tempDir, 'screen.png');
     const script = `printf 'READY\\n'; IFS= read -r line; printf 'MCP_FLOW:%s\\n' "$line"; IFS= read -r done`;
 
     const launched = parseToolResult(
@@ -138,12 +146,41 @@ describe('MCP server', () => {
         arguments: { sessionId, format: 'svg', savePath: screenshotPath, returnContent: false },
       })
     );
+    const pngResponse = await client.callTool({
+      name: 'tui_screenshot',
+      arguments: {
+        sessionId,
+        format: 'png',
+        savePath: pngPath,
+        fontSize: 16,
+        showWindowChrome: false,
+      },
+    });
+    const png = parseToolResult(pngResponse);
 
     expect(action).toMatchObject({ found: true, settled: true });
     expect(screenshot).not.toHaveProperty('svg');
     expect(screenshot.savePath).toBe(screenshotPath);
     expect(existsSync(screenshotPath)).toBe(true);
     expect(await readFile(screenshotPath, 'utf-8')).toMatch(/^<svg[\s\S]*<\/svg>$/);
+    expect(png).toMatchObject({
+      format: 'png',
+      savePath: pngPath,
+      metadata: {
+        pixels: {
+          width: expect.any(Number),
+          height: expect.any(Number),
+        },
+      },
+    });
+    const pngContent = (pngResponse as {
+      content: Array<{ type: string; mimeType?: string; data?: string }>;
+    }).content;
+    const imageContent = pngContent.find(content => content.type === 'image');
+    expect(imageContent).toMatchObject({ type: 'image', mimeType: 'image/png' });
+    expect(Buffer.from(await readFile(pngPath)).subarray(0, 8)).toEqual(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    );
 
     await client.callTool({ name: 'tui_send_keys', arguments: { sessionId, keys: 'done\r' } });
     const closed = parseToolResult(await client.callTool({ name: 'tui_close', arguments: { sessionId } }));
@@ -159,6 +196,10 @@ describe('MCP server', () => {
       const launched = parseToolResult(
         await client.callTool({ name: 'tui_launch', arguments: { command: '/bin/true' } })
       );
+      expect(launched.dimensions).toEqual({
+        cols: DEFAULT_TERMINAL_COLS,
+        rows: DEFAULT_TERMINAL_ROWS,
+      });
       sessionIds.push(launched.sessionId as string);
     }
 

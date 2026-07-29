@@ -12,7 +12,13 @@ export { TuiSession } from './lib/tui-session.js';
 // --- Types and error classes ---
 export type { LaunchOptions, ScreenState, ReadOptions, CloseResult, SendResult, SessionInfo } from './lib/types.js';
 export type { SpecialKey } from './lib/types.js';
-export { SPECIAL_KEY_VALUES, WaitForTimeoutError, LaunchError } from './lib/types.js';
+export {
+  DEFAULT_TERMINAL_COLS,
+  DEFAULT_TERMINAL_ROWS,
+  SPECIAL_KEY_VALUES,
+  WaitForTimeoutError,
+  LaunchError,
+} from './lib/types.js';
 
 // --- Key mapping ---
 export { KEY_MAP, resolveKey } from './lib/key-map.js';
@@ -28,5 +34,15 @@ export { createTempDir } from './helpers.js';
 export type { CreateTempDirOptions, TempDirResult } from './helpers.js';
 
 // --- SVG Screenshots ---
-export { renderTerminalToSvg, DARK_THEME, LIGHT_THEME } from './lib/svg-renderer.js';
-export type { SvgRenderOptions, SvgTheme } from './lib/svg-renderer.js';
+export {
+  renderTerminalToSvg,
+  DARK_TERMINAL_PROFILE,
+  DARK_THEME,
+  LIGHT_TERMINAL_PROFILE,
+  LIGHT_THEME,
+} from './lib/svg-renderer.js';
+export type { SvgRenderOptions, SvgTheme, TerminalVisualProfile } from './lib/svg-renderer.js';
+
+// --- PNG Screenshots ---
+export { rasterizeTerminalSvg, renderTerminalToPng } from './lib/terminal-rasterizer.js';
+export type { RasterizedTerminalImage } from './lib/terminal-rasterizer.js';

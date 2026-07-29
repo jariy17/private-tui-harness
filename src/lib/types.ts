@@ -10,14 +10,17 @@
 // Interfaces
 // ---------------------------------------------------------------------------
 
+export const DEFAULT_TERMINAL_COLS = 140;
+export const DEFAULT_TERMINAL_ROWS = 40;
+
 /**
  * Options for launching a TUI session.
  *
  * @property command - The executable to spawn (e.g. "/usr/bin/node", "vim", "htop").
  * @property args - Arguments passed to the command. Defaults to [].
  * @property cwd - Working directory for the spawned process.
- * @property cols - Terminal width in columns. Defaults to 100.
- * @property rows - Terminal height in rows. Defaults to 30.
+ * @property cols - Terminal width in columns. Defaults to 140.
+ * @property rows - Terminal height in rows. Defaults to 40.
  * @property env - Additional environment variables merged with process.env.
  */
 export interface LaunchOptions {

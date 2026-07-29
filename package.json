@@ -1,12 +1,13 @@
 {
   "name": "tui-harness-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server for programmatically driving any TUI application via headless pseudo-terminals",
   "type": "module",
   "main": "dist/index.js",
   "files": [
     "dist",
-    "agents"
+    "agents",
+    "assets"
   ],
   "bin": {
     "tui-harness-mcp": "dist/mcp/index.js"
@@ -36,6 +37,7 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "@resvg/resvg-js": "^2.6.2",
     "@xterm/headless": "^6.0.0",
     "node-pty": "^1.1.0",
     "typescript": "^5.7.0",
