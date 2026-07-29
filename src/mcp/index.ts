@@ -1,4 +1,7 @@
+#!/usr/bin/env node
+
 import { startHttpServer } from './http-server.js';
+import { buildLaunchdPath, escapePlistValue } from './launchd.js';
 import { closeAllSessions, createServer } from './server.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'fs';
@@ -107,7 +110,8 @@ function installLaunchd(): void {
   const entryPoint = join(projectRoot, 'dist', 'mcp', 'index.js');
   const home = homedir();
   const user = process.env.USER ?? 'unknown';
-  const nodeDir = dirname(nodePath);
+  // launchd does not load the user's shell profile, so preserve the PATH from installation.
+  const launchdPath = buildLaunchdPath(nodePath);
 
   if (!existsSync(entryPoint)) {
     console.error(`Error: Entry point not found at ${entryPoint}. Run npm run build first.`);
@@ -127,13 +131,13 @@ function installLaunchd(): void {
 
     <key>ProgramArguments</key>
     <array>
-        <string>${nodePath}</string>
-        <string>${entryPoint}</string>
+        <string>${escapePlistValue(nodePath)}</string>
+        <string>${escapePlistValue(entryPoint)}</string>
         <string>--http</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>${projectRoot}</string>
+    <string>${escapePlistValue(projectRoot)}</string>
 
     <key>RunAtLoad</key>
     <true/>
@@ -142,19 +146,19 @@ function installLaunchd(): void {
     <true/>
 
     <key>StandardOutPath</key>
-    <string>${logsDir}/tui-harness.stdout.log</string>
+    <string>${escapePlistValue(logsDir)}/tui-harness.stdout.log</string>
 
     <key>StandardErrorPath</key>
-    <string>${logsDir}/tui-harness.stderr.log</string>
+    <string>${escapePlistValue(logsDir)}/tui-harness.stderr.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>${nodeDir}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <string>${escapePlistValue(launchdPath)}</string>
         <key>HOME</key>
-        <string>${home}</string>
+        <string>${escapePlistValue(home)}</string>
         <key>USER</key>
-        <string>${user}</string>
+        <string>${escapePlistValue(user)}</string>
         <key>SHELL</key>
         <string>/bin/zsh</string>
         <key>LANG</key>

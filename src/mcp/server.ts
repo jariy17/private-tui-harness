@@ -11,10 +11,10 @@
  *   tui_wait_for      - Wait for a pattern to appear on screen
  *   tui_screenshot    - Capture a bordered, numbered screenshot (text or SVG)
  *   tui_close         - Close a session and terminate its process
- *   tui_list_sessions - List all active sessions
+ *   tui_list_sessions - List retained sessions and their current liveness
  */
 import { DARK_THEME, LIGHT_THEME, LaunchError, TuiSession, WaitForTimeoutError, closeAll } from '../index.js';
-import type { SpecialKey, SvgRenderOptions } from '../index.js';
+import type { CloseResult, SpecialKey, SvgRenderOptions } from '../index.js';
 import { LAUNCH_DEFAULTS, SPECIAL_KEY_ENUM, TOOL_NAMES } from './tools.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { writeFileSync } from 'fs';
@@ -59,6 +59,10 @@ function getSession(sessionId: string): TuiSession | undefined {
   return sessions.get(sessionId);
 }
 
+function activeSessionCount(): number {
+  return Array.from(sessions.values()).filter(session => session.alive).length;
+}
+
 // ---------------------------------------------------------------------------
 // Tool handlers
 // ---------------------------------------------------------------------------
@@ -71,7 +75,7 @@ async function handleLaunch(args: {
   rows?: number;
   env?: Record<string, string>;
 }) {
-  if (sessions.size >= MAX_SESSIONS) {
+  if (activeSessionCount() >= MAX_SESSIONS) {
     return errorResponse(
       `Maximum number of concurrent sessions (${MAX_SESSIONS}) reached. ` +
         'Close an existing session before launching a new one.'
@@ -379,8 +383,10 @@ async function handleClose(args: { sessionId: string; signal?: string }) {
 
   try {
     const { signal } = args;
-    const result = await session.close(signal);
-    sessions.delete(sessionId);
+    const result = await closeTuiSession(sessionId, signal);
+    if (!result) {
+      return errorResponse(`Session not found: ${sessionId}`);
+    }
 
     return jsonResponse({
       exitCode: result.exitCode,
@@ -388,7 +394,6 @@ async function handleClose(args: { sessionId: string; signal?: string }) {
       finalScreen: result.finalScreen,
     });
   } catch (err) {
-    sessions.delete(sessionId);
     return errorResponse(`Error closing session ${sessionId}: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
@@ -479,7 +484,7 @@ export function createServer(): McpServer {
           .min(0)
           .max(10000)
           .optional()
-          .describe('Milliseconds to wait for the screen to settle after sending keys (default: 300).'),
+          .describe('Milliseconds of text silence required for the screen to settle (default: 100).'),
       },
       annotations: {
         openWorldHint: true,
@@ -512,7 +517,7 @@ export function createServer(): McpServer {
           .min(0)
           .max(10000)
           .optional()
-          .describe('Milliseconds to wait for the screen to settle after sending keys (default: 300).'),
+          .describe('Milliseconds of text silence required for the screen to settle (default: 100).'),
         pattern: z.string().optional().describe('Text or regex pattern to wait for on screen after sending keys.'),
         timeoutMs: z
           .number()
@@ -520,7 +525,7 @@ export function createServer(): McpServer {
           .min(100)
           .max(30000)
           .optional()
-          .describe('Maximum time to wait for the pattern in milliseconds (default: 5000).'),
+          .describe('Maximum time to wait for the pattern in milliseconds (default: 10000).'),
         isRegex: z.boolean().optional().describe('When true, interpret the pattern as a regular expression.'),
         numbered: z.boolean().optional().describe('When true, prefix each screen line with its 1-indexed line number.'),
         includeScrollback: z
@@ -581,7 +586,7 @@ export function createServer(): McpServer {
           .min(100)
           .max(30000)
           .optional()
-          .describe('Maximum time in milliseconds to wait for the pattern to appear (default: 5000).'),
+          .describe('Maximum time in milliseconds to wait for the pattern to appear (default: 10000).'),
         isRegex: z.boolean().optional().describe('When true, interpret the pattern as a regular expression.'),
       },
       annotations: {
@@ -600,7 +605,7 @@ export function createServer(): McpServer {
       title: 'Take Screenshot',
       description:
         'Capture a screenshot of the terminal. Supports text format (bordered, line-numbered) ' +
-        'or SVG format (rendered visual screenshot). Optionally saves the output to disk.',
+        'or SVG format (rendered visual screenshot). Optionally writes the output to disk.',
       inputSchema: {
         sessionId: z.string().describe('The session ID returned by tui_launch.'),
         format: z
@@ -617,7 +622,7 @@ export function createServer(): McpServer {
           .string()
           .optional()
           .describe(
-            'Absolute file path to write the screenshot content to disk. The file is written in UTF-8 encoding.'
+            'Absolute file path to write the screenshot content to disk. Existing files are overwritten in UTF-8 encoding.'
           ),
         returnContent: z
           .boolean()
@@ -627,8 +632,8 @@ export function createServer(): McpServer {
           ),
       },
       annotations: {
-        readOnlyHint: true,
-        idempotentHint: true,
+        readOnlyHint: false,
+        destructiveHint: true,
       },
     },
     args => {
@@ -663,7 +668,7 @@ export function createServer(): McpServer {
     TOOL_NAMES.LIST_SESSIONS,
     {
       title: 'List Sessions',
-      description: 'List all active TUI sessions.',
+      description: 'List retained TUI sessions and their current liveness.',
       annotations: {
         readOnlyHint: true,
         idempotentHint: true,
@@ -686,9 +691,23 @@ export function getTuiSession(sessionId: string): TuiSession | undefined {
   return sessions.get(sessionId);
 }
 
-/** List all active TUI sessions. Used by the web console. */
+/** List retained TUI sessions. Used by the web console. */
 export function listTuiSessions(): TuiSession[] {
   return Array.from(sessions.values());
+}
+
+/** Close and remove a TUI session from the server-owned session pool. */
+export async function closeTuiSession(sessionId: string, signal?: string): Promise<CloseResult | undefined> {
+  const session = sessions.get(sessionId);
+  if (!session) {
+    return undefined;
+  }
+
+  try {
+    return await session.close(signal);
+  } finally {
+    sessions.delete(sessionId);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -696,7 +715,7 @@ export function listTuiSessions(): TuiSession[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Close all active sessions managed by this server and clear the session map.
+ * Close all retained sessions managed by this server and clear the session map.
  */
 export async function closeAllSessions(): Promise<void> {
   const closePromises = Array.from(sessions.values()).map(async session => {

@@ -54,7 +54,7 @@ export class SettlingMonitor {
    * milliseconds), or until the hard ceiling timeout is reached.
    *
    * @param waitMs - Milliseconds of text silence required. Defaults to
-   *   the value provided in the constructor options (300ms).
+   *   the value provided in the constructor options (100ms).
    * @returns `true` if output settled within the time limit, `false` if
    *   the hard ceiling was reached or the monitor was disposed.
    */

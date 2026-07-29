@@ -49,9 +49,16 @@ Or add to `.mcp.json`:
 | `tui_action` | Composite: send keys + wait for pattern + read screen in one call. |
 | `tui_read_screen` | Read the current terminal screen content. |
 | `tui_wait_for` | Wait for text/regex to appear on screen. |
-| `tui_screenshot` | Capture a text or SVG screenshot. Optionally save to disk. |
+| `tui_screenshot` | Capture a text or SVG screenshot. Optionally write it to disk. |
 | `tui_close` | Close a session and terminate its process. |
-| `tui_list_sessions` | List all active sessions. |
+| `tui_list_sessions` | List retained sessions and their current liveness. |
+
+### Interaction defaults
+
+- Key sends wait for 100ms of text silence before returning. Cosmetic writes such as cursor blinking do not reset the timer.
+- Pattern waits time out after 10 seconds unless `timeoutMs` is provided.
+- Up to 10 live processes may run concurrently. Exited sessions remain available for final-screen inspection until closed, but do not consume the live-session quota.
+- `tui_screenshot.savePath` writes the screenshot to the requested path and overwrites an existing file.
 
 ## Library Usage
 
@@ -99,11 +106,15 @@ src/
 │   ├── svg-renderer.ts   # Terminal → SVG rendering
 │   ├── session-manager.ts # Global session registry + cleanup
 │   └── availability.ts   # node-pty availability check
-└── mcp/
-    ├── index.ts          # CLI entry point (HTTP or stdio)
-    ├── server.ts         # MCP tool registration and handlers
-    ├── http-server.ts    # Streamable HTTP transport
-    └── tools.ts          # Tool name constants and defaults
+├── mcp/
+│   ├── index.ts          # CLI entry point (HTTP or stdio)
+│   ├── launchd.ts        # launchd environment and plist helpers
+│   ├── server.ts         # MCP tool registration and handlers
+│   ├── http-server.ts    # Streamable HTTP transport
+│   └── tools.ts          # Tool name constants and defaults
+└── web/
+    ├── routes.ts         # Browser console API
+    └── security.ts       # Loopback Host and same-origin validation
 ```
 
 ### Key Design Decisions
@@ -113,6 +124,7 @@ src/
 - **DSR/CPR handler** intercepts cursor position queries so TUI frameworks like Ink don't hang
 - **Settling monitor** compares text snapshots to detect when rendering is complete, filtering out cursor blink noise
 - **HTTP transport** recommended for Claude Code (stdio transport blocks PTY spawning inside the sandbox)
+- **Exited-session retention** keeps final screens inspectable without reducing the live-session allowance
 
 ## Transport Modes
 
@@ -123,6 +135,19 @@ Runs as an independent process. PTY spawning works normally.
 ```bash
 node dist/mcp/index.js --http --port 24100
 ```
+
+The HTTP server also provides a web console at `http://127.0.0.1:24100/`.
+
+### Local security model
+
+The HTTP server is intentionally a local automation service:
+
+- It binds only to `127.0.0.1`.
+- It accepts only loopback `Host` headers.
+- Browser requests must use an exact same-origin loopback `Origin`.
+- The console API does not emit wildcard CORS headers.
+
+There is no token authentication. Local processes are inside the trust boundary because the service can launch commands and send input to active terminals. Do not expose the server through a reverse proxy, port forward, or non-loopback listener.
 
 ### Stdio
 
@@ -142,6 +167,7 @@ npx tui-harness-mcp install-launchd
 
 This will:
 - Generate a plist at `~/Library/LaunchAgents/tui_harness_mcp_launch.plist` with your current node path and project location
+- Preserve the installer's current `PATH`, while adding standard system fallback directories
 - Load the service immediately
 - Print the `claude mcp add` command to register it in Claude Code
 
@@ -227,3 +253,12 @@ SCREENSHOTS: /tmp/deploy-report/screenshots/
 
 - Node.js >= 20
 - A C++ toolchain for `node-pty` native compilation (Xcode CLI tools on macOS, build-essential on Linux)
+
+## Development
+
+```bash
+npm ci
+npm test
+```
+
+The test command builds the package first, then covers PTY/xterm integration, MCP tool behavior, screenshot output, session lifecycle, web-console cleanup, request security, launchd configuration, and packaged CLI execution.

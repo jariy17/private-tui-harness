@@ -13,11 +13,12 @@
  *   GET    - Opens an SSE stream for server-initiated messages.
  *   DELETE - Terminates a session and cleans up its resources.
  *
- * The server binds to `127.0.0.1` only (no external access) and registers
- * `SIGTERM`/`SIGINT` handlers for graceful shutdown.
+ * The server binds to `127.0.0.1` only, validates loopback Host and same-origin
+ * browser requests, and registers `SIGTERM`/`SIGINT` handlers for graceful shutdown.
  */
-import { closeAllSessions, createServer, getTuiSession, listTuiSessions } from './server.js';
+import { closeAllSessions, closeTuiSession, createServer, getTuiSession, listTuiSessions } from './server.js';
 import { createWebConsoleHandler } from '../web/routes.js';
+import { validateLocalRequest } from '../web/security.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
@@ -169,9 +170,16 @@ async function handleDelete(req: IncomingMessage, res: ServerResponse): Promise<
 // ---------------------------------------------------------------------------
 
 /** Web console handler — created lazily on first request. */
-const webConsole = createWebConsoleHandler(getTuiSession, listTuiSessions);
+const webConsole = createWebConsoleHandler(getTuiSession, listTuiSessions, closeTuiSession);
 
 function dispatch(req: IncomingMessage, res: ServerResponse): void {
+  const validation = validateLocalRequest(req.headers.host, req.headers.origin);
+  if (!validation.allowed) {
+    res.writeHead(validation.statusCode ?? 403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: validation.message }));
+    return;
+  }
+
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
 
   const handleRequest = async (): Promise<void> => {

@@ -19,6 +19,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { TuiSession } from '../lib/tui-session.js';
+import type { CloseResult } from '../lib/types.js';
 import type { SpecialKey } from '../lib/types.js';
 import { SPECIAL_KEY_VALUES } from '../lib/types.js';
 
@@ -46,8 +47,11 @@ try {
 /** Function that looks up a session by ID from the server's session pool. */
 export type SessionLookup = (sessionId: string) => TuiSession | undefined;
 
-/** Function that returns all active sessions. */
+/** Function that returns all retained sessions. */
 export type SessionList = () => TuiSession[];
+
+/** Function that closes a session and removes it from the server-owned pool. */
+export type SessionClose = (sessionId: string) => Promise<CloseResult | undefined>;
 
 // ---------------------------------------------------------------------------
 // Request body parsing
@@ -67,7 +71,7 @@ function readBody(req: IncomingMessage): Promise<string> {
 // ---------------------------------------------------------------------------
 
 function json(res: ServerResponse, data: unknown, status = 200): void {
-  res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+  res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(data));
 }
 
@@ -97,7 +101,8 @@ function notFound(res: ServerResponse, message = 'Not found'): void {
  */
 export function createWebConsoleHandler(
   getSession: SessionLookup,
-  listSessions: SessionList
+  listSessions: SessionList,
+  closeSession: SessionClose
 ): (req: IncomingMessage, res: ServerResponse) => Promise<boolean> {
 
   return async (req, res): Promise<boolean> => {
@@ -105,10 +110,9 @@ export function createWebConsoleHandler(
     const path = url.pathname;
     const method = req.method ?? 'GET';
 
-    // CORS preflight
+    // Preflight requests have already passed the HTTP server's Host/Origin validation.
     if (method === 'OPTIONS') {
       res.writeHead(204, {
-        'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
       });
@@ -197,7 +201,11 @@ export function createWebConsoleHandler(
     // POST /api/sessions/:id/close
     if (action === 'close' && method === 'POST') {
       try {
-        const result = await session.close();
+        const result = await closeSession(sessionId);
+        if (!result) {
+          notFound(res, `Session not found: ${sessionId}`);
+          return true;
+        }
         json(res, { exitCode: result.exitCode, signal: result.signal });
       } catch (err) {
         json(res, { error: err instanceof Error ? err.message : String(err) }, 500);

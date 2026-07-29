@@ -12,13 +12,16 @@
     "tui-harness-mcp": "dist/mcp/index.js"
   },
   "scripts": {
-    "build": "tsc && cp src/web/console.html dist/web/console.html",
+    "build": "tsc && cp src/web/console.html dist/web/console.html && chmod +x dist/mcp/index.js",
     "start": "node dist/mcp/index.js --http",
     "start:stdio": "node dist/mcp/index.js",
-    "prepare": "tsc && cp src/web/console.html dist/web/console.html",
+    "prepare": "npm run build",
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true",
     "clean": "rm -rf dist",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "pretest": "npm run build && npm run typecheck",
     "test": "vitest run",
+    "pretest:watch": "npm run build && npm run typecheck",
     "test:watch": "vitest"
   },
   "keywords": [

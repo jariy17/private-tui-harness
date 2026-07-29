@@ -213,7 +213,7 @@
   <div class="sidebar">
     <h2>Sessions</h2>
     <div id="session-list">
-      <div class="no-sessions">No active sessions</div>
+      <div class="no-sessions">No sessions</div>
     </div>
   </div>
 
@@ -302,7 +302,7 @@
 
   function renderSessionList() {
     if (sessions.length === 0) {
-      sessionList.innerHTML = '<div class="no-sessions">No active sessions</div>';
+      sessionList.innerHTML = '<div class="no-sessions">No sessions</div>';
       return;
     }
     sessionList.innerHTML = sessions.map(s => {
