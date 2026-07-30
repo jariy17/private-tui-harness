@@ -181,7 +181,7 @@ The recording JSON is independent from the video. Rerender it with a different t
 Two visual renderers are available:
 
 - `native` replays every PTY update for full-motion terminal video.
-- `mac` exports each semantic marker as a terminal keyframe, then uses [Mac (Meme as Code)](https://github.com/jona62/mac) to compose captions, holds, and transitions. FFmpeg only encodes the Mac visual master and muxes narration.
+- `mac` exports each semantic marker as a terminal keyframe, then uses [Mac (Meme as Code)](https://github.com/jona62/mac) to compose captions, holds, and transitions as lossless PNG frames. FFmpeg encodes that Mac-authored frame sequence and muxes narration.
 
 Render an existing recording from the command line:
 
@@ -204,7 +204,7 @@ npx tui-harness-mcp render-demo ./demo.recording.json \
   --aws-profile deploy
 ```
 
-The durable work directory contains `source-frames/`, the generated `.mac` program, `manifest.json`, synthesized narration clips, and `visual-master.gif`.
+The durable work directory contains `source-frames/`, the generated `.mac` program, `manifest.json`, synthesized narration clips, and `visual-frames/` with lossless PNGs, per-frame timing, and the FFmpeg concat input.
 
 Use an existing audio file in a marker, or synthesize every marker's `narration` text with Amazon Polly:
 

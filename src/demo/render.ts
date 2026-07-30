@@ -1,4 +1,4 @@
-import { encodeDemoVideo, encodeNarrationTrack, encodeVisualDemoVideo } from './ffmpeg.js';
+import { encodeDemoVideo, encodeMacFrameSequenceVideo, encodeNarrationTrack } from './ffmpeg.js';
 import { renderMacVisual } from './mac.js';
 import { prepareNarration } from './narration.js';
 import { buildDemoTimeline, replayDemoFrames } from './replay.js';
@@ -61,12 +61,11 @@ export async function renderDemo(options: DemoRenderOptions): Promise<DemoRender
         mac: options.mac,
       });
       const timedAudio = buildMacTimedAudio(narrationClips, visual.scenes);
-      await encodeVisualDemoVideo({
-        visualPath: visual.visualMasterPath,
+      await encodeMacFrameSequenceVideo({
+        frameManifestPath: visual.visualMasterPath,
         fps,
         outputPath,
         format,
-        durationMs: visual.durationMs,
         audioClips: timedAudio,
         ffmpegPath: options.ffmpegPath,
       });

@@ -229,3 +229,16 @@ export interface DemoMacManifest {
   visualMaster: string;
   scenes: DemoMacScene[];
 }
+
+export interface DemoMacFrameSequenceFrame {
+  path: string;
+  durationMs: number;
+}
+
+export interface DemoMacFrameSequenceManifest {
+  version: 1;
+  format: 'mac-frame-sequence';
+  width: number;
+  height: number;
+  frames: DemoMacFrameSequenceFrame[];
+}

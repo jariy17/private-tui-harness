@@ -76,7 +76,7 @@ npx tui-harness-mcp render-demo ./demo.recording.json \
   --narration-output ./demo-joanna.wav
 ```
 
-Use a durable `--work-dir` with the Mac renderer. It preserves the source terminal PNGs, generated `.mac` program, timing manifest, synthesized clips, and Mac visual master.
+Use a durable `--work-dir` with the Mac renderer. It preserves the source terminal PNGs, generated `.mac` program, timing manifest, synthesized clips, and lossless Mac frame sequence.
 
 Use `npx tui-harness-mcp render-demo --help` for all render options.
 
@@ -130,7 +130,7 @@ Input capture is disabled by default. Enabling it stores raw typed text and spec
 
 The `native` renderer replays output through `@xterm/headless`, uses the harness SVG renderer for each frame, rasterizes SVG with `@resvg/resvg-js`, and encodes the PNG sequence with FFmpeg.
 
-The `mac` renderer replays output only to semantic markers and exports one source PNG per marker. It generates a Mac program that owns caption composition, frame holds, and transitions, then invokes Mac to create `visual-master.gif`. FFmpeg converts that Mac output to MP4 or WebM and muxes narration. The generated manifest records exact scene starts, quantized GIF holds, transition timing, and narration alignment.
+The `mac` renderer replays output only to semantic markers and exports one source PNG per marker. It generates a Mac program that owns caption composition, frame holds, and transitions, then invokes `Gif.saveFrames()` to create lossless RGBA PNG frames and `visual-frames/manifest.json`. FFmpeg reads the per-frame durations directly from that manifest, encodes the PNGs to MP4 or WebM, and muxes narration. The generated harness manifest records exact scene starts, Mac frame holds, transition timing, and narration alignment.
 
 - MP4 uses H.264 and AAC.
 - WebM uses VP9 and Opus.
@@ -138,7 +138,7 @@ The `mac` renderer replays output only to semantic markers and exports one sourc
 - Captions are baked into the frame and emitted as a sidecar `.srt`.
 - Existing audio files and synthesized Polly clips can be mixed on one timeline.
 - `keepWorkDir` retains frames and generated audio for diagnosis.
-- Mac GIFs are limited to 500 total keyframes and interpolated transition frames. The renderer validates the limit before invoking Mac.
+- Mac animations are limited to 500 total keyframes and interpolated transition frames. The renderer validates the limit before invoking Mac.
 
 External voice models can generate marker-level files referenced by `audioPath`. Confirm that a model is text-to-speech before using it for narration; automatic speech recognition models such as Whisper transcribe audio and cannot synthesize a voice.
 

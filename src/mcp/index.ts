@@ -237,7 +237,7 @@ async function renderDemoCommand(args: string[]): Promise<void> {
   if (result.macProgramPath) {
     printLine(`Mac program: ${result.macProgramPath}`);
     printLine(`Mac manifest: ${result.macManifestPath}`);
-    printLine(`Mac visual master: ${result.visualMasterPath}`);
+    printLine(`Mac frame manifest: ${result.visualMasterPath}`);
   }
   if (result.workDir) {
     printLine(`Work directory: ${result.workDir}`);

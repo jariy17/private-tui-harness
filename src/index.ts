@@ -65,6 +65,8 @@ export type {
   DemoKeyframe,
   DemoKeyframeExportResult,
   DemoMacEasing,
+  DemoMacFrameSequenceFrame,
+  DemoMacFrameSequenceManifest,
   DemoMacManifest,
   DemoMacOptions,
   DemoMacScene,

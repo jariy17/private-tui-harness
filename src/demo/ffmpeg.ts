@@ -1,5 +1,6 @@
-import { mkdir, stat } from 'fs/promises';
-import { dirname, extname } from 'path';
+import type { DemoMacFrameSequenceManifest } from './types.js';
+import { mkdir, readFile, stat, writeFile } from 'fs/promises';
+import { dirname, extname, join, resolve } from 'path';
 import { spawn, type SpawnOptions } from 'child_process';
 
 const MAX_ERROR_OUTPUT = 32_000;
@@ -21,6 +22,11 @@ export interface EncodeVideoOptions {
 
 export interface EncodeVisualVideoOptions extends Omit<EncodeVideoOptions, 'framesPattern'> {
   visualPath: string;
+}
+
+export interface EncodeMacFrameSequenceVideoOptions
+  extends Omit<EncodeVideoOptions, 'framesPattern' | 'durationMs'> {
+  frameManifestPath: string;
 }
 
 export interface EncodeNarrationOptions {
@@ -100,42 +106,94 @@ export async function encodeDemoVideo(options: EncodeVideoOptions): Promise<void
 }
 
 export async function encodeVisualDemoVideo(options: EncodeVisualVideoOptions): Promise<void> {
-  const ffmpegPath = options.ffmpegPath ?? 'ffmpeg';
-  const args = ['-y', '-loglevel', 'error'];
+  const inputArgs: string[] = [];
   if (extname(options.visualPath).toLowerCase() === '.gif') {
-    args.push('-ignore_loop', '1');
+    inputArgs.push('-ignore_loop', '1');
   }
-  args.push('-i', options.visualPath);
+  inputArgs.push('-i', options.visualPath);
+  await encodeVisualInput(options, inputArgs);
+}
 
-  for (const clip of options.audioClips) {
-    args.push('-i', clip.path);
+export async function encodeMacFrameSequenceVideo(options: EncodeMacFrameSequenceVideoOptions): Promise<void> {
+  const loaded = await readMacFrameSequenceManifest(options.frameManifestPath);
+  const concatPath = join(dirname(resolve(options.frameManifestPath)), 'frames.ffconcat');
+  const concatLines = ['ffconcat version 1.0'];
+  for (const frame of loaded.manifest.frames) {
+    concatLines.push(`file '${frame.path}'`, `duration ${formatSeconds(frame.durationMs)}`);
   }
+  concatLines.push(`file '${loaded.manifest.frames.at(-1)!.path}'`);
+  await writeFile(concatPath, `${concatLines.join('\n')}\n`, 'utf-8');
 
-  if (options.audioClips.length > 0) {
-    args.push(
-      '-filter_complex',
-      buildTimedAudioFilter(options.audioClips, 1, options.durationMs),
-      '-map',
-      '0:v:0',
-      '-map',
-      '[audio]'
-    );
-  } else {
-    args.push('-map', '0:v:0');
-  }
-
-  args.push(
-    '-vf',
-    `fps=${options.fps},pad=ceil(iw/2)*2:ceil(ih/2)*2`,
-    '-t',
-    formatSeconds(options.durationMs)
+  await encodeVisualInput(
+    {
+      ...options,
+      visualPath: options.frameManifestPath,
+      durationMs: loaded.durationMs,
+    },
+    ['-f', 'concat', '-safe', '1', '-i', concatPath]
   );
-  appendCodecArgs(args, options.format, options.audioClips.length > 0);
-  args.push(options.outputPath);
+}
 
-  await mkdir(dirname(options.outputPath), { recursive: true });
-  await runExternalCommand(ffmpegPath, args, 'FFmpeg');
-  await assertNonEmptyOutput(options.outputPath, 'video');
+export async function readMacFrameSequenceManifest(path: string): Promise<{
+  manifest: DemoMacFrameSequenceManifest;
+  framePaths: string[];
+  durationMs: number;
+}> {
+  const manifestPath = resolve(path);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(manifestPath, 'utf-8'));
+  } catch (error) {
+    throw new Error(
+      `Unable to read Mac frame sequence manifest at ${manifestPath}: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+
+  if (!isRecord(parsed) || parsed.version !== 1 || parsed.format !== 'mac-frame-sequence') {
+    throw new Error(`Invalid Mac frame sequence manifest at ${manifestPath}: unsupported format or version.`);
+  }
+  if (!isPositiveInteger(parsed.width) || !isPositiveInteger(parsed.height) || !Array.isArray(parsed.frames)) {
+    throw new Error(`Invalid Mac frame sequence manifest at ${manifestPath}: invalid dimensions or frames.`);
+  }
+  if (parsed.frames.length === 0) {
+    throw new Error(`Invalid Mac frame sequence manifest at ${manifestPath}: the frame list is empty.`);
+  }
+
+  const seenPaths = new Set<string>();
+  const frames = parsed.frames.map((candidate, index) => {
+    if (
+      !isRecord(candidate) ||
+      typeof candidate.path !== 'string' ||
+      !/^frame-\d{6}\.png$/.test(candidate.path) ||
+      !isPositiveInteger(candidate.durationMs)
+    ) {
+      throw new Error(`Invalid Mac frame sequence manifest at ${manifestPath}: invalid frame ${index + 1}.`);
+    }
+    if (seenPaths.has(candidate.path)) {
+      throw new Error(`Invalid Mac frame sequence manifest at ${manifestPath}: duplicate frame ${candidate.path}.`);
+    }
+    seenPaths.add(candidate.path);
+    return { path: candidate.path, durationMs: candidate.durationMs };
+  });
+  const manifest: DemoMacFrameSequenceManifest = {
+    version: 1,
+    format: 'mac-frame-sequence',
+    width: parsed.width,
+    height: parsed.height,
+    frames,
+  };
+  const framePaths = frames.map(frame => join(dirname(manifestPath), frame.path));
+  const outputs = await Promise.all(framePaths.map(framePath => stat(framePath).catch(() => undefined)));
+  const missingFrame = outputs.findIndex(output => !output?.isFile() || output.size === 0);
+  if (missingFrame !== -1) {
+    throw new Error(`Mac frame sequence is missing frame ${framePaths[missingFrame]}.`);
+  }
+
+  return {
+    manifest,
+    framePaths,
+    durationMs: frames.reduce((total, frame) => total + frame.durationMs, 0),
+  };
 }
 
 export async function encodeNarrationTrack(options: EncodeNarrationOptions): Promise<void> {
@@ -249,6 +307,44 @@ function appendCodecArgs(args: string[], format: 'mp4' | 'webm', hasAudio: boole
   }
 }
 
+async function encodeVisualInput(
+  options: EncodeVisualVideoOptions,
+  inputArgs: string[]
+): Promise<void> {
+  const ffmpegPath = options.ffmpegPath ?? 'ffmpeg';
+  const args = ['-y', '-loglevel', 'error', ...inputArgs];
+
+  for (const clip of options.audioClips) {
+    args.push('-i', clip.path);
+  }
+
+  if (options.audioClips.length > 0) {
+    args.push(
+      '-filter_complex',
+      buildTimedAudioFilter(options.audioClips, 1, options.durationMs),
+      '-map',
+      '0:v:0',
+      '-map',
+      '[audio]'
+    );
+  } else {
+    args.push('-map', '0:v:0');
+  }
+
+  args.push(
+    '-vf',
+    `fps=${options.fps},pad=ceil(iw/2)*2:ceil(ih/2)*2`,
+    '-t',
+    formatSeconds(options.durationMs)
+  );
+  appendCodecArgs(args, options.format, options.audioClips.length > 0);
+  args.push(options.outputPath);
+
+  await mkdir(dirname(options.outputPath), { recursive: true });
+  await runExternalCommand(ffmpegPath, args, 'FFmpeg');
+  await assertNonEmptyOutput(options.outputPath, 'video');
+}
+
 async function assertNonEmptyOutput(path: string, label: string): Promise<void> {
   const output = await stat(path).catch(() => undefined);
   if (!output?.isFile() || output.size === 0) {
@@ -263,4 +359,12 @@ function appendBounded(current: string, addition: string): string {
 
 function formatSeconds(milliseconds: number): string {
   return (milliseconds / 1000).toFixed(3);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }

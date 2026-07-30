@@ -141,16 +141,44 @@ describe('demo media integration', () => {
     tempDir = await mkdtemp(join(tmpdir(), 'tui-demo-mac-'));
     const macPath = join(tempDir, 'mac');
     const ffmpegPath = join(tempDir, 'ffmpeg');
+    const argsPath = join(tempDir, 'ffmpeg-args.txt');
     const workDir = join(tempDir, 'work');
     const outputPath = join(tempDir, 'walkthrough.mp4');
 
     await writeExecutable(
       macPath,
-      '#!/bin/sh\nprintf \'GIF89a\' > "$MAC_OUTPUT_DIR/visual-master.gif"\n'
+      `#!/usr/bin/env node
+const { mkdirSync, readFileSync, writeFileSync } = require('node:fs');
+const { join } = require('node:path');
+const root = process.env.MAC_OUTPUT_DIR;
+const harnessManifest = JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf-8'));
+const outputDir = join(root, 'visual-frames');
+const durations = [200, 70, 70, 70, 70, 70, 70, 500];
+mkdirSync(outputDir, { recursive: true });
+const frames = durations.map((durationMs, index) => {
+  const path = \`frame-\${String(index + 1).padStart(6, '0')}.png\`;
+  writeFileSync(join(outputDir, path), 'png');
+  return { path, durationMs };
+});
+writeFileSync(
+  join(outputDir, 'manifest.json'),
+  JSON.stringify({
+    version: 1,
+    format: 'mac-frame-sequence',
+    width: harnessManifest.width,
+    height: harnessManifest.height,
+    frames,
+  })
+);
+`
     );
     await writeExecutable(
       ffmpegPath,
-      '#!/bin/sh\nfor last do :; done\nprintf \'video\' > "$last"\n'
+      `#!/bin/sh
+printf '%s\\n' "$@" > '${argsPath}'
+for last do :; done
+printf 'video' > "$last"
+`
     );
     const macRecording: DemoRecording = {
       ...recording,
@@ -184,13 +212,14 @@ describe('demo media integration', () => {
       narrationClips: 0,
       macProgramPath: join(workDir, 'walkthrough.mac'),
       macManifestPath: join(workDir, 'manifest.json'),
-      visualMasterPath: join(workDir, 'visual-master.gif'),
+      visualMasterPath: join(workDir, 'visual-frames', 'manifest.json'),
     });
     const program = await readFile(join(workDir, 'walkthrough.mac'), 'utf-8');
     expect(program).toContain('@"source-frames/001-marker-1.png"');
     expect(program).toContain('bottom: "Ready to deploy."');
     expect(program).toContain('--- crossfade 500ms easeInOut ---');
     expect(program).toContain('bottom: "Deployment complete."');
+    expect(program).toContain('walkthrough.saveFrames("visual-frames")');
     const manifest = JSON.parse(await readFile(join(workDir, 'manifest.json'), 'utf-8'));
     expect(manifest).toMatchObject({
       renderer: 'mac',
@@ -201,6 +230,18 @@ describe('demo media integration', () => {
         { sourceFrame: 'source-frames/002-marker-3.png', holdMs: 500 },
       ],
     });
+    const frameManifest = JSON.parse(
+      await readFile(join(workDir, 'visual-frames', 'manifest.json'), 'utf-8')
+    );
+    expect(frameManifest.format).toBe('mac-frame-sequence');
+    expect(frameManifest.frames.map((frame: { durationMs: number }) => frame.durationMs)).toEqual([
+      200, 70, 70, 70, 70, 70, 70, 500,
+    ]);
+    const concat = await readFile(join(workDir, 'visual-frames', 'frames.ffconcat'), 'utf-8');
+    expect(concat).toContain("file 'frame-000001.png'");
+    expect(concat).toContain('duration 0.200');
+    expect(await readFile(argsPath, 'utf-8')).toContain('frames.ffconcat');
+    expect(await readFile(argsPath, 'utf-8')).not.toContain('.gif');
     expect(await readFile(outputPath, 'utf-8')).toBe('video');
   });
 });
