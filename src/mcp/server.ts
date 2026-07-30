@@ -13,7 +13,16 @@
  *   tui_close         - Close a session and terminate its process
  *   tui_list_sessions - List retained sessions and their current liveness
  */
-import { DARK_THEME, LIGHT_THEME, LaunchError, TuiSession, WaitForTimeoutError, closeAll } from '../index.js';
+import {
+  DARK_THEME,
+  DEFAULT_TERMINAL_COLS,
+  DEFAULT_TERMINAL_ROWS,
+  LIGHT_THEME,
+  LaunchError,
+  TuiSession,
+  WaitForTimeoutError,
+  closeAll,
+} from '../index.js';
 import type { CloseResult, SpecialKey, SvgRenderOptions } from '../index.js';
 import { LAUNCH_DEFAULTS, SPECIAL_KEY_ENUM, TOOL_NAMES } from './tools.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -302,8 +311,11 @@ async function handleWaitFor(args: { sessionId: string; pattern: string; timeout
 
 function handleScreenshot(args: {
   sessionId: string;
-  format?: 'text' | 'svg';
+  format?: 'text' | 'svg' | 'png';
   theme?: 'dark' | 'light';
+  fontSize?: number;
+  showWindowChrome?: boolean;
+  title?: string;
   savePath?: string;
   returnContent?: boolean;
 }) {
@@ -325,11 +337,14 @@ function handleScreenshot(args: {
       timestamp: new Date().toISOString(),
     };
 
-    if (format === 'svg') {
-      const svgOptions: SvgRenderOptions = {
-        theme: args.theme === 'light' ? LIGHT_THEME : DARK_THEME,
-      };
+    const svgOptions: SvgRenderOptions = {
+      theme: args.theme === 'light' ? LIGHT_THEME : DARK_THEME,
+      fontSize: args.fontSize,
+      showWindowChrome: args.showWindowChrome,
+      title: args.title,
+    };
 
+    if (format === 'svg') {
       const svg = session.screenshot(svgOptions);
 
       if (args.savePath) {
@@ -344,6 +359,38 @@ function handleScreenshot(args: {
         ...(args.savePath ? { savePath: args.savePath } : {}),
         metadata,
       });
+    }
+
+    if (format === 'png') {
+      const image = session.screenshotPng(svgOptions);
+      if (args.savePath) {
+        writeFileSync(args.savePath, image.png);
+      }
+
+      const result = {
+        format: 'png',
+        ...(args.savePath ? { savePath: args.savePath } : {}),
+        metadata: {
+          ...metadata,
+          pixels: { width: image.width, height: image.height },
+        },
+      };
+      const includeContent = args.returnContent !== false;
+
+      return {
+        content: [
+          { type: 'text' as const, text: JSON.stringify(result, null, 2) },
+          ...(includeContent
+            ? [
+                {
+                  type: 'image' as const,
+                  data: Buffer.from(image.png).toString('base64'),
+                  mimeType: 'image/png',
+                },
+              ]
+            : []),
+        ],
+      };
     }
 
     // Default: text format
@@ -444,8 +491,20 @@ export function createServer(): McpServer {
           .optional()
           .describe('Arguments passed to the command.'),
         cwd: z.string().optional().describe('Working directory for the spawned process.'),
-        cols: z.number().int().min(40).max(300).optional().describe('Terminal width in columns (default: 100).'),
-        rows: z.number().int().min(10).max(100).optional().describe('Terminal height in rows (default: 30).'),
+        cols: z
+          .number()
+          .int()
+          .min(40)
+          .max(300)
+          .optional()
+          .describe(`Terminal width in columns (default: ${DEFAULT_TERMINAL_COLS}).`),
+        rows: z
+          .number()
+          .int()
+          .min(10)
+          .max(100)
+          .optional()
+          .describe(`Terminal height in rows (default: ${DEFAULT_TERMINAL_ROWS}).`),
         env: z
           .record(z.string(), z.string())
           .optional()
@@ -604,20 +663,35 @@ export function createServer(): McpServer {
     {
       title: 'Take Screenshot',
       description:
-        'Capture a screenshot of the terminal. Supports text format (bordered, line-numbered) ' +
-        'or SVG format (rendered visual screenshot). Optionally writes the output to disk.',
+        'Capture a screenshot of the terminal. Supports text, self-contained SVG, and deterministic PNG output. ' +
+        'Optionally writes the output to disk.',
       inputSchema: {
         sessionId: z.string().describe('The session ID returned by tui_launch.'),
         format: z
-          .enum(['text', 'svg'])
+          .enum(['text', 'svg', 'png'])
           .optional()
           .describe(
-            'Output format. "text" returns a bordered text screenshot; "svg" returns a self-contained SVG document (default: "text").'
+            'Output format. "text" returns bordered text, "svg" returns a self-contained vector image, and "png" returns a raster image (default: "text").'
           ),
         theme: z
           .enum(['dark', 'light'])
           .optional()
-          .describe('Color theme for SVG rendering. Ignored when format is "text" (default: "dark").'),
+          .describe('Color theme for SVG and PNG rendering. Ignored when format is "text" (default: "dark").'),
+        fontSize: z
+          .number()
+          .min(8)
+          .max(48)
+          .optional()
+          .describe('Terminal font size in pixels for SVG and PNG rendering (default: 16).'),
+        showWindowChrome: z
+          .boolean()
+          .optional()
+          .describe('Whether SVG and PNG output includes terminal window chrome (default: true).'),
+        title: z
+          .string()
+          .max(200)
+          .optional()
+          .describe('Optional title shown in terminal window chrome.'),
         savePath: z
           .string()
           .optional()

@@ -49,28 +49,31 @@ Or add to `.mcp.json`:
 | `tui_action` | Composite: send keys + wait for pattern + read screen in one call. |
 | `tui_read_screen` | Read the current terminal screen content. |
 | `tui_wait_for` | Wait for text/regex to appear on screen. |
-| `tui_screenshot` | Capture a text or SVG screenshot. Optionally write it to disk. |
+| `tui_screenshot` | Capture text, self-contained SVG, or deterministic PNG. Optionally write it to disk. |
 | `tui_close` | Close a session and terminate its process. |
 | `tui_list_sessions` | List retained sessions and their current liveness. |
 
 ### Interaction defaults
 
+- Sessions use a 140x40 terminal viewport unless `cols` or `rows` is provided.
 - Key sends wait for 100ms of text silence before returning. Cosmetic writes such as cursor blinking do not reset the timer.
 - Pattern waits time out after 10 seconds unless `timeoutMs` is provided.
 - Up to 10 live processes may run concurrently. Exited sessions remain available for final-screen inspection until closed, but do not consume the live-session quota.
 - `tui_screenshot.savePath` writes the screenshot to the requested path and overwrites an existing file.
+- SVG and PNG screenshots use a packaged 16px DejaVu Sans Mono profile and high-contrast ANSI palette, so font metrics and raster output do not depend on the host's installed fonts.
+- `tui_screenshot` accepts `theme`, `fontSize`, `showWindowChrome`, and `title` for visual output. PNG responses include an MCP image unless `returnContent` is false.
 
 ## Library Usage
 
 The harness can also be used as a Node.js library:
 
 ```typescript
-import { TuiSession } from 'tui-harness-mcp';
+import { DARK_THEME, TuiSession } from 'tui-harness-mcp';
 
 const session = await TuiSession.launch({
   command: 'vim',
   args: ['test.txt'],
-  cols: 120,
+  cols: 140,
   rows: 40,
 });
 
@@ -88,6 +91,12 @@ console.log(screen.lines.join('\n'));
 // Take an SVG screenshot
 const svg = session.screenshot({ theme: DARK_THEME });
 
+// Or rasterize the same terminal profile as PNG
+const { png, width, height } = session.screenshotPng({
+  theme: DARK_THEME,
+  showWindowChrome: false,
+});
+
 // Clean up
 await session.close();
 ```
@@ -104,6 +113,9 @@ src/
 │   ├── settling.ts       # Output settling detection
 │   ├── key-map.ts        # Special key → escape sequence mapping
 │   ├── svg-renderer.ts   # Terminal → SVG rendering
+│   ├── terminal-profile.ts # Themes, fonts, and terminal cell metrics
+│   ├── terminal-rasterizer.ts # Deterministic SVG → PNG rendering
+│   ├── font-assets.ts    # Packaged font loading and SVG embedding
 │   ├── session-manager.ts # Global session registry + cleanup
 │   └── availability.ts   # node-pty availability check
 ├── mcp/
@@ -123,6 +135,8 @@ src/
 - **`@xterm/headless`** maintains a virtual screen buffer, so screen reads are instant (no scraping)
 - **DSR/CPR handler** intercepts cursor position queries so TUI frameworks like Ink don't hang
 - **Settling monitor** compares text snapshots to detect when rendering is complete, filtering out cursor blink noise
+- **Terminal visual profiles** keep font metrics, ANSI palettes, cursor rendering, SVG output, and PNG output consistent across hosts
+- **Bundled font faces** remove system-font substitution while retaining system fonts only as fallback for glyphs outside DejaVu's coverage
 - **HTTP transport** recommended for Claude Code (stdio transport blocks PTY spawning inside the sandbox)
 - **Exited-session retention** keeps final screens inspectable without reducing the live-session allowance
 

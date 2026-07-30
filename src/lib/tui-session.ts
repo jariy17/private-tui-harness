@@ -16,6 +16,8 @@ import { buildScreenState, getBufferType, readViewportRich } from './screen.js';
 import type { RichLine } from './screen.js';
 import { register, unregister } from './session-manager.js';
 import { SettlingMonitor } from './settling.js';
+import { renderTerminalToPng } from './terminal-rasterizer.js';
+import type { RasterizedTerminalImage } from './terminal-rasterizer.js';
 import { renderTerminalToSvg } from './svg-renderer.js';
 import type { SvgRenderOptions } from './svg-renderer.js';
 import type {
@@ -27,7 +29,12 @@ import type {
   SessionInfo,
   SpecialKey,
 } from './types.js';
-import { LaunchError, WaitForTimeoutError } from './types.js';
+import {
+  DEFAULT_TERMINAL_COLS,
+  DEFAULT_TERMINAL_ROWS,
+  LaunchError,
+  WaitForTimeoutError,
+} from './types.js';
 import xtermHeadless from '@xterm/headless';
 import { randomUUID } from 'crypto';
 import * as pty from 'node-pty';
@@ -123,8 +130,8 @@ export class TuiSession {
    */
   static async launch(options: LaunchOptions): Promise<TuiSession> {
     const sessionId = randomUUID();
-    const cols = options.cols ?? 100;
-    const rows = options.rows ?? 30;
+    const cols = options.cols ?? DEFAULT_TERMINAL_COLS;
+    const rows = options.rows ?? DEFAULT_TERMINAL_ROWS;
     const cwd = options.cwd ?? process.cwd();
     const args = options.args ?? [];
     const created = new Date();
@@ -292,6 +299,14 @@ export class TuiSession {
   screenshot(options?: SvgRenderOptions): string {
     this.assertAlive();
     return renderTerminalToSvg(this.terminal, options);
+  }
+
+  /**
+   * Render the current terminal screen as a deterministic PNG image.
+   */
+  screenshotPng(options?: SvgRenderOptions): RasterizedTerminalImage {
+    this.assertAlive();
+    return renderTerminalToPng(this.terminal, options);
   }
 
   // ---------------------------------------------------------------------------

@@ -1,11 +1,8 @@
-/**
- * Unit tests for the SVG renderer.
- *
- * Each test creates its own Terminal instance to avoid shared state.
- * terminal.write() is async internally -- we wait 50ms after each write
- * to give xterm a tick to process.
- */
-import { DARK_THEME, LIGHT_THEME, renderTerminalToSvg } from '../lib/svg-renderer.js';
+import {
+  DARK_THEME,
+  LIGHT_THEME,
+  renderTerminalToSvg,
+} from '../lib/svg-renderer.js';
 import xtermHeadless from '@xterm/headless';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -18,107 +15,130 @@ describe('SVG renderer', () => {
     terminal?.dispose();
   });
 
-  it('renders a basic SVG from a terminal with text', async () => {
-    terminal = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
-    terminal.write('Hello World');
-    await new Promise(resolve => setTimeout(resolve, 50));
+  it('renders a terminal grid without stretching normal text', async () => {
+    terminal = createTerminal();
+    await write(terminal, 'Hello World');
 
-    const svg = renderTerminalToSvg(terminal);
+    const svg = render({ showCursor: false });
 
-    expect(svg.startsWith('<svg')).toBe(true);
-    expect(svg.endsWith('</svg>')).toBe(true);
+    expect(svg).toMatch(/^<svg[\s\S]*<\/svg>$/);
     expect(svg).toContain('Hello World');
-    expect(svg).toContain('<rect');
+    expect(svg).toContain('xml:space="preserve"');
+    expect(svg).not.toContain('lengthAdjust="spacing"');
+    expect(svg).not.toContain('textLength=');
   });
 
-  it('includes window chrome when showWindowChrome is true', async () => {
-    terminal = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
-    terminal.write('test');
-    await new Promise(resolve => setTimeout(resolve, 50));
+  it('embeds the bundled font in self-contained SVG output', async () => {
+    terminal = createTerminal();
+    await write(terminal, 'font');
 
-    const svg = renderTerminalToSvg(terminal, { showWindowChrome: true });
+    const svg = renderTerminalToSvg(terminal, { showCursor: false });
 
-    expect(svg).toContain('#ff5f56');
-    expect(svg).toContain('#ffbd2e');
-    expect(svg).toContain('#27c93f');
+    expect(svg).toContain("@font-face {font-family: 'DejaVu Sans Mono'");
+    expect(svg).toContain('data:font/woff2;base64,');
+    expect(svg).toContain('font-variant-ligatures: none');
   });
 
-  it('omits window chrome when showWindowChrome is false', async () => {
-    terminal = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
-    terminal.write('test');
-    await new Promise(resolve => setTimeout(resolve, 50));
+  it('includes or omits window chrome as requested', async () => {
+    terminal = createTerminal();
+    await write(terminal, 'test');
 
-    const svg = renderTerminalToSvg(terminal, { showWindowChrome: false });
-
-    expect(svg).not.toContain('#ff5f56');
-    expect(svg).not.toContain('#ffbd2e');
-    expect(svg).not.toContain('#27c93f');
+    expect(render({ showWindowChrome: true })).toContain('#ff5f56');
+    expect(render({ showWindowChrome: false })).not.toContain('#ff5f56');
   });
 
-  it('uses light theme when specified', async () => {
-    terminal = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
-    terminal.write('test');
-    await new Promise(resolve => setTimeout(resolve, 50));
+  it('uses the requested theme', async () => {
+    terminal = createTerminal();
+    await write(terminal, 'test');
 
-    const svg = renderTerminalToSvg(terminal, { theme: LIGHT_THEME });
-
-    expect(svg).toContain('#ffffff');
+    expect(render({ theme: LIGHT_THEME })).toContain('.terminal-bg { fill: #ffffff; }');
+    expect(render()).toContain(`.terminal-bg { fill: ${DARK_THEME.background}; }`);
+    expect(render()).not.toMatch(/\.terminal-text\s*\{[^}]*fill:/);
   });
 
-  it('uses dark theme by default', async () => {
-    terminal = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
-    terminal.write('test');
-    await new Promise(resolve => setTimeout(resolve, 50));
+  it('uses the legible 16px terminal profile by default', async () => {
+    terminal = createTerminal();
+    await write(terminal, 'test');
 
-    const svg = renderTerminalToSvg(terminal);
-
-    expect(svg).toContain('#1e1e1e');
+    expect(render()).toContain('font-size: 16px');
   });
 
-  it('includes cursor when showCursor is true', async () => {
-    terminal = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
-    terminal.write('test');
-    await new Promise(resolve => setTimeout(resolve, 50));
+  it('renders the cursor as an opaque cell behind its text', async () => {
+    terminal = createTerminal();
+    await write(terminal, 'test');
 
-    const svg = renderTerminalToSvg(terminal, { showCursor: true });
+    const svg = render({ showCursor: true });
 
-    expect(svg).toContain(DARK_THEME.cursor);
-    expect(svg).toContain('opacity="0.7"');
+    expect(svg).toContain(`fill="${DARK_THEME.cursor}"`);
+    expect(svg).not.toContain('opacity="0.7"');
   });
 
-  it('handles special XML characters', async () => {
-    terminal = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
-    terminal.write('<div>&"test"</div>');
-    await new Promise(resolve => setTimeout(resolve, 50));
+  it('handles special XML characters and window titles', async () => {
+    terminal = createTerminal();
+    await write(terminal, '<div>&"test"</div>');
 
-    const svg = renderTerminalToSvg(terminal);
+    const svg = render({ title: 'My <Terminal>' });
 
     expect(svg).toContain('&lt;div&gt;');
     expect(svg).toContain('&amp;');
-    expect(svg).not.toMatch(/<div>[^<]*&"test"[^<]*<\/div>/);
+    expect(svg).toContain('My &lt;Terminal&gt;');
+    expect(svg).toContain(`class="terminal-text" fill="${DARK_THEME.foreground}"`);
   });
 
-  it('respects custom title in window chrome', async () => {
-    terminal = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
-    terminal.write('test');
-    await new Promise(resolve => setTimeout(resolve, 50));
+  it('resolves inverse colors and text decorations', async () => {
+    terminal = createTerminal();
+    await write(terminal, '\x1b[31;44;7;4;9;53mX');
 
-    const svg = renderTerminalToSvg(terminal, { title: 'My Terminal' });
+    const svg = render({ showCursor: false });
 
-    expect(svg).toContain('My Terminal');
+    expect(svg).toContain(`fill="${DARK_THEME.palette[1]}"`);
+    expect(svg).toContain(`fill="${DARK_THEME.palette[4]}"`);
+    expect(svg).toContain('text-decoration="underline line-through overline"');
   });
 
-  it('preserves whitespace and uses textLength for precise character positioning', async () => {
-    terminal = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
-    terminal.write('test');
-    await new Promise(resolve => setTimeout(resolve, 50));
+  it('keeps bold weight independent from ANSI color brightness', async () => {
+    terminal = createTerminal();
+    await write(terminal, '\x1b[1;31mX');
 
-    const svg = renderTerminalToSvg(terminal);
+    const svg = render({ showCursor: false });
 
-    expect(svg).toContain('white-space: pre');
-    expect(svg).toContain('xml:space="preserve"');
+    expect(svg).toContain(`fill="${DARK_THEME.palette[1]}"`);
+    expect(svg).not.toContain(`fill="${DARK_THEME.palette[9]}"`);
+    expect(svg).toContain('terminal-bold');
+  });
+
+  it('does not paint invisible text', async () => {
+    terminal = createTerminal();
+    await write(terminal, 'visible \x1b[8msecret');
+
+    const svg = render({ showCursor: false });
+
+    expect(svg).toContain('visible');
+    expect(svg).not.toContain('secret');
+  });
+
+  it('fits wide glyphs to their xterm cell width', async () => {
+    terminal = createTerminal();
+    await write(terminal, '界');
+
+    const svg = render({ showCursor: false });
+
     expect(svg).toContain('textLength=');
-    expect(svg).toContain('lengthAdjust="spacing"');
-    expect(svg).not.toMatch(/<text[^>]*>\n/);
+    expect(svg).toContain('lengthAdjust="spacingAndGlyphs"');
   });
+
+  function createTerminal() {
+    return new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+  }
+
+  function render(options = {}) {
+    return renderTerminalToSvg(terminal, {
+      embedFont: false,
+      ...options,
+    });
+  }
 });
+
+function write(terminal: InstanceType<typeof Terminal>, data: string): Promise<void> {
+  return new Promise(resolve => terminal.write(data, resolve));
+}
