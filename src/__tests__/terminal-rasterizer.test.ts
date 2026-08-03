@@ -1,5 +1,5 @@
 import { DARK_THEME, renderTerminalToSvg } from '../lib/svg-renderer.js';
-import { renderTerminalToPng } from '../lib/terminal-rasterizer.js';
+import { rasterizeTerminalSvg, renderTerminalToPng } from '../lib/terminal-rasterizer.js';
 import { Resvg } from '@resvg/resvg-js';
 import xtermHeadless from '@xterm/headless';
 import { createHash } from 'crypto';
@@ -12,6 +12,25 @@ describe('terminal rasterizer', () => {
 
   afterEach(() => {
     terminal?.dispose();
+  });
+
+  it('rasterizes PNG output at 2x pixel density by default', () => {
+    const image = rasterizeTerminalSvg(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="20"><rect width="10" height="20"/></svg>'
+    );
+
+    expect(image.width).toBe(20);
+    expect(image.height).toBe(40);
+  });
+
+  it('supports an explicit PNG pixel density', () => {
+    const image = rasterizeTerminalSvg(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="20"><rect width="10" height="20"/></svg>',
+      { pixelRatio: 1 }
+    );
+
+    expect(image.width).toBe(10);
+    expect(image.height).toBe(20);
   });
 
   it('renders deterministic PNG pixels with the bundled font', async () => {
@@ -35,7 +54,7 @@ describe('terminal rasterizer', () => {
     expect(image.width).toBeGreaterThan(300);
     expect(image.height).toBeGreaterThan(180);
     expect(createHash('sha256').update(image.png).digest('hex')).toBe(
-      'abe15fff3f26e6ac330c142322b63da37f4b8185ad4246d3ca98d0d8a5f49ced'
+      '1520ff2c2b10d9accbd5f45fed8e3fba2272502541b230c9ec708465b74d8559'
     );
   });
 

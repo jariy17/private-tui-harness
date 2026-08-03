@@ -97,8 +97,12 @@ const svg = session.screenshot({ theme: DARK_THEME });
 // Or rasterize the same terminal profile as PNG
 const { png, width, height } = session.screenshotPng({
   theme: DARK_THEME,
+  pixelRatio: 2,
   showWindowChrome: false,
 });
+
+// PNG output defaults to 2x pixel density for sharp text on high-density displays.
+// Set pixelRatio to 1 when smaller output dimensions are preferred.
 
 // Clean up
 await session.close();

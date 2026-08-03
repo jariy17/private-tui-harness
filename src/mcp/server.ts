@@ -15,6 +15,7 @@
  */
 import {
   DARK_THEME,
+  DEFAULT_PNG_PIXEL_RATIO,
   DEFAULT_TERMINAL_COLS,
   DEFAULT_TERMINAL_ROWS,
   LIGHT_THEME,
@@ -314,6 +315,7 @@ function handleScreenshot(args: {
   format?: 'text' | 'svg' | 'png';
   theme?: 'dark' | 'light';
   fontSize?: number;
+  pixelRatio?: number;
   showWindowChrome?: boolean;
   title?: string;
   savePath?: string;
@@ -362,7 +364,10 @@ function handleScreenshot(args: {
     }
 
     if (format === 'png') {
-      const image = session.screenshotPng(svgOptions);
+      const image = session.screenshotPng({
+        ...svgOptions,
+        pixelRatio: args.pixelRatio,
+      });
       if (args.savePath) {
         writeFileSync(args.savePath, image.png);
       }
@@ -728,6 +733,14 @@ export function createServer(): McpServer {
           .max(48)
           .optional()
           .describe('Terminal font size in pixels for SVG and PNG rendering (default: 16).'),
+        pixelRatio: z
+          .number()
+          .min(1)
+          .max(4)
+          .optional()
+          .describe(
+            `PNG output pixel density relative to the SVG dimensions. Ignored when format is not "png" (default: ${DEFAULT_PNG_PIXEL_RATIO}).`
+          ),
         showWindowChrome: z
           .boolean()
           .optional()

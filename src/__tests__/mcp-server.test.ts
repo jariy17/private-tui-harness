@@ -109,11 +109,15 @@ describe('MCP server', () => {
     const waitForProperties = waitFor?.inputSchema.properties as
       | Record<string, { description?: string }>
       | undefined;
+    const screenshotProperties = screenshot?.inputSchema.properties as
+      | Record<string, { description?: string }>
+      | undefined;
 
     expect(launchProperties?.cols?.description).toContain(`default: ${DEFAULT_TERMINAL_COLS}`);
     expect(launchProperties?.rows?.description).toContain(`default: ${DEFAULT_TERMINAL_ROWS}`);
     expect(sendKeysProperties?.waitMs?.description).toContain('default: 100');
     expect(waitForProperties?.timeoutMs?.description).toContain('default: 10000');
+    expect(screenshotProperties?.pixelRatio?.description).toContain('default: 2');
     expect(screenshot?.annotations).toMatchObject({
       readOnlyHint: false,
       destructiveHint: true,
@@ -153,6 +157,7 @@ describe('MCP server', () => {
         format: 'png',
         savePath: pngPath,
         fontSize: 16,
+        pixelRatio: 1,
         showWindowChrome: false,
       },
     });
@@ -168,8 +173,8 @@ describe('MCP server', () => {
       savePath: pngPath,
       metadata: {
         pixels: {
-          width: expect.any(Number),
-          height: expect.any(Number),
+          width: 791,
+          height: 524,
         },
       },
     });

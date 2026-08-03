@@ -17,7 +17,7 @@ import type { RichLine } from './screen.js';
 import { register, unregister } from './session-manager.js';
 import { SettlingMonitor } from './settling.js';
 import { renderTerminalToPng } from './terminal-rasterizer.js';
-import type { RasterizedTerminalImage } from './terminal-rasterizer.js';
+import type { PngRenderOptions, RasterizedTerminalImage } from './terminal-rasterizer.js';
 import { renderTerminalToSvg } from './svg-renderer.js';
 import type { SvgRenderOptions } from './svg-renderer.js';
 import { TerminalRecorder } from './video-recorder.js';
@@ -327,7 +327,7 @@ export class TuiSession {
   /**
    * Render the current terminal screen as a deterministic PNG image.
    */
-  screenshotPng(options?: SvgRenderOptions): RasterizedTerminalImage {
+  screenshotPng(options?: PngRenderOptions): RasterizedTerminalImage {
     this.assertAlive();
     return renderTerminalToPng(this.terminal, options);
   }
