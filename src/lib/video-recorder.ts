@@ -73,6 +73,7 @@ export class TerminalRecorder {
   private lastSnapshot = '';
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private writeListener: { dispose(): void } | null = null;
+  private pendingKey = '';
 
   constructor(terminal: Terminal, options: RecordingOptions = {}) {
     this.terminal = terminal;
@@ -83,6 +84,15 @@ export class TerminalRecorder {
   /** Whether this recorder is currently capturing frames. */
   get recording(): boolean {
     return this.started;
+  }
+
+  /**
+   * Record the key label to stamp on the next captured frame. Called by the
+   * session just before writing a keystroke to the PTY, so the frame showing
+   * the resulting screen is tagged with the key that produced it.
+   */
+  noteKey(label: string): void {
+    this.pendingKey = label;
   }
 
   /**
@@ -152,7 +162,13 @@ export class TerminalRecorder {
   }
 
   private captureFrame(atMs: number): void {
-    const { png } = renderTerminalToPng(this.terminal, { ...this.options, embedFont: false });
+    const keyLabel = this.pendingKey;
+    this.pendingKey = '';
+    const { png } = renderTerminalToPng(this.terminal, {
+      ...this.options,
+      embedFont: false,
+      keyLabel,
+    });
     this.frames.push({ png, atMs });
   }
 

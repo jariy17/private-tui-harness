@@ -65,6 +65,25 @@ const SIGNAL_NAMES: Record<number, string> = {
 };
 
 /**
+ * Build a short human-readable label for raw typed keys, for the recording
+ * key-tag overlay. Names common control chars; truncates long typed strings.
+ */
+function labelForKeys(keys: string): string {
+  if (keys === '\r' || keys === '\n' || keys === '\r\n') return 'enter';
+  if (keys === '\t') return 'tab';
+  if (keys === '\x1b') return 'esc';
+  if (keys === ' ') return 'space';
+  if (keys === '\x7f' || keys === '\b') return 'backspace';
+  // A lone control char (e.g. Ctrl-C = \x03) → "ctrl+c".
+  if (keys.length === 1 && keys.charCodeAt(0) < 0x20) {
+    return `ctrl+${String.fromCharCode(keys.charCodeAt(0) + 96)}`;
+  }
+  const printable = keys.replace(/[\x00-\x1f\x7f]/g, '');
+  if (!printable) return 'key';
+  return printable.length > 16 ? `${printable.slice(0, 15)}…` : printable;
+}
+
+/**
  * A headless TUI session backed by a PTY process and an xterm terminal emulator.
  *
  * Provides methods to send keystrokes, read the screen, wait for patterns,
@@ -363,6 +382,7 @@ export class TuiSession {
    */
   async sendKeys(keys: string, waitMs?: number): Promise<SendResult> {
     this.assertAlive();
+    this.recorder?.noteKey(labelForKeys(keys));
     this.ptyProcess.write(keys);
     const settled = await this.settlingMonitor.waitForSettle(waitMs);
     return { screen: this.readScreen(), settled };
@@ -374,6 +394,7 @@ export class TuiSession {
   async sendSpecialKey(key: SpecialKey, waitMs?: number): Promise<SendResult> {
     this.assertAlive();
     const sequence = resolveKey(key);
+    this.recorder?.noteKey(key);
     this.ptyProcess.write(sequence);
     const settled = await this.settlingMonitor.waitForSettle(waitMs);
     return { screen: this.readScreen(), settled };

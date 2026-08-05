@@ -29,6 +29,8 @@ export interface SvgRenderOptions {
   title?: string;
   padding?: number;
   borderRadius?: number;
+  /** Optional short label drawn top-right (e.g. the key that produced this frame). */
+  keyLabel?: string;
 }
 
 interface CellStyle {
@@ -64,6 +66,7 @@ interface ResolvedRenderOptions {
   title: string;
   padding: number;
   borderRadius: number;
+  keyLabel: string;
 }
 
 export function renderTerminalToSvg(terminal: Terminal, options?: SvgRenderOptions): string {
@@ -82,6 +85,7 @@ export function renderTerminalToSvg(terminal: Terminal, options?: SvgRenderOptio
     title,
     padding,
     borderRadius,
+    keyLabel,
   } = resolved;
   const buffer = terminal.buffer.active;
   const cols = terminal.cols;
@@ -238,7 +242,25 @@ export function renderTerminalToSvg(terminal: Terminal, options?: SvgRenderOptio
     }
   }
 
-  svg.push('</g>', '</svg>');
+  svg.push('</g>');
+
+  // Key tag: a rounded pill in the top-right corner showing the key that
+  // produced this frame. Drawn last so it sits above the terminal content.
+  if (keyLabel) {
+    const tagFontSize = fontSize - 2;
+    const tagCharW = tagFontSize * profile.cellWidthRatio;
+    const tagText = ` ${keyLabel} `;
+    const tagW = tagText.length * tagCharW + 8;
+    const tagH = tagFontSize + 10;
+    const tagX = totalWidth - tagW - padding;
+    const tagY = showWindowChrome ? (chromeHeight - tagH) / 2 : padding;
+    svg.push(
+      `<rect x="${formatMetric(tagX)}" y="${formatMetric(tagY)}" width="${formatMetric(tagW)}" height="${formatMetric(tagH)}" rx="${formatMetric(tagH / 2)}" fill="${theme.foreground}" fill-opacity="0.14"/>`,
+      `<text x="${formatMetric(tagX + tagW / 2)}" y="${formatMetric(tagY + tagH / 2 + tagFontSize * 0.35)}" text-anchor="middle" class="terminal-text terminal-bold" font-size="${tagFontSize}px" fill="${theme.foreground}">${escapeXml(tagText.trim())}</text>`
+    );
+  }
+
+  svg.push('</svg>');
   return svg.join('\n');
 }
 
@@ -260,6 +282,7 @@ function resolveOptions(options?: SvgRenderOptions): ResolvedRenderOptions {
     title: options?.title ?? '',
     padding: options?.padding ?? profile.padding,
     borderRadius: options?.borderRadius ?? profile.borderRadius,
+    keyLabel: options?.keyLabel ?? '',
   };
 }
 
