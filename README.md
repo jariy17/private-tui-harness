@@ -50,6 +50,8 @@ Or add to `.mcp.json`:
 | `tui_read_screen` | Read the current terminal screen content. |
 | `tui_wait_for` | Wait for text/regex to appear on screen. |
 | `tui_screenshot` | Capture text, self-contained SVG, or deterministic PNG. Optionally write it to disk. |
+| `tui_record_start` | Start recording the session to a video (one frame per screen change). |
+| `tui_record_stop` | Stop recording and encode to an MP4 or GIF on disk. |
 | `tui_close` | Close a session and terminate its process. |
 | `tui_list_sessions` | List retained sessions and their current liveness. |
 
@@ -62,6 +64,7 @@ Or add to `.mcp.json`:
 - `tui_screenshot.savePath` writes the screenshot to the requested path and overwrites an existing file.
 - SVG and PNG screenshots use a packaged 16px DejaVu Sans Mono profile and high-contrast ANSI palette, so font metrics and raster output do not depend on the host's installed fonts.
 - `tui_screenshot` accepts `theme`, `fontSize`, `showWindowChrome`, and `title` for visual output. PNG responses include an MCP image unless `returnContent` is false.
+- `tui_record_start`/`tui_record_stop` record a session to video. Frames are captured per distinct screen state (not real time), so idle gaps between keystrokes are compressed rather than recorded as dead air; each frame's on-screen duration mirrors the real interaction timing (clamped to 0.1–3s). `tui_record_stop.savePath` picks the format by extension (`.gif` → GIF, otherwise MP4). Encoding uses the bundled `ffmpeg-static` binary, so no system ffmpeg is required.
 
 ## Library Usage
 

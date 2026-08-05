@@ -20,6 +20,8 @@ import { renderTerminalToPng } from './terminal-rasterizer.js';
 import type { RasterizedTerminalImage } from './terminal-rasterizer.js';
 import { renderTerminalToSvg } from './svg-renderer.js';
 import type { SvgRenderOptions } from './svg-renderer.js';
+import { TerminalRecorder } from './video-recorder.js';
+import type { RecordingOptions, RecordingResult } from './video-recorder.js';
 import type {
   CloseResult,
   LaunchOptions,
@@ -85,6 +87,7 @@ export class TuiSession {
   private _alive: boolean;
   private _exitCode: number | null;
   private _exitSignal: string | null;
+  private recorder: TerminalRecorder | null;
 
   private constructor(
     sessionId: string,
@@ -109,6 +112,7 @@ export class TuiSession {
     this._alive = true;
     this._exitCode = null;
     this._exitSignal = null;
+    this.recorder = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -310,6 +314,47 @@ export class TuiSession {
   }
 
   // ---------------------------------------------------------------------------
+  // Video recording
+  // ---------------------------------------------------------------------------
+
+  /** Whether a recording is currently in progress. */
+  get recording(): boolean {
+    return this.recorder?.recording ?? false;
+  }
+
+  /**
+   * Start recording the terminal to a video. Captures one frame per distinct
+   * screen state until {@link stopRecording} is called.
+   *
+   * @throws If a recording is already in progress.
+   */
+  startRecording(options?: RecordingOptions): void {
+    this.assertAlive();
+    if (this.recorder?.recording) {
+      throw new Error(`Session ${this._sessionId} is already recording.`);
+    }
+    this.recorder = new TerminalRecorder(this.terminal, options);
+    this.recorder.start();
+  }
+
+  /**
+   * Stop recording and encode the captured frames to a video file.
+   *
+   * @param outputPath - Absolute path to write. Extension selects format
+   *   (.gif → GIF, otherwise MP4).
+   * @param fps - Output frame rate (default 10).
+   * @throws If no recording is in progress.
+   */
+  async stopRecording(outputPath: string, fps?: number): Promise<RecordingResult> {
+    if (!this.recorder?.recording) {
+      throw new Error(`Session ${this._sessionId} is not recording.`);
+    }
+    const recorder = this.recorder;
+    this.recorder = null;
+    return recorder.stop(outputPath, fps);
+  }
+
+  // ---------------------------------------------------------------------------
   // Input methods
   // ---------------------------------------------------------------------------
 
@@ -488,6 +533,8 @@ export class TuiSession {
   }
 
   private disposeAll(): void {
+    this.recorder?.dispose();
+    this.recorder = null;
     this.settlingMonitor.dispose();
     for (const disposable of this.disposables) {
       try {

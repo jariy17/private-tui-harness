@@ -421,6 +421,51 @@ function handleScreenshot(args: {
   }
 }
 
+function handleRecordStart(args: {
+  sessionId: string;
+  theme?: 'dark' | 'light';
+  fontSize?: number;
+  showWindowChrome?: boolean;
+  title?: string;
+  debounceMs?: number;
+}) {
+  const session = getSession(args.sessionId);
+  if (!session) {
+    return errorResponse(`Session not found: ${args.sessionId}`);
+  }
+
+  try {
+    session.startRecording({
+      theme: args.theme === 'light' ? LIGHT_THEME : DARK_THEME,
+      fontSize: args.fontSize,
+      showWindowChrome: args.showWindowChrome,
+      title: args.title,
+      debounceMs: args.debounceMs,
+    });
+    return jsonResponse({ recording: true, sessionId: args.sessionId });
+  } catch (err) {
+    return errorResponse(
+      `Failed to start recording for session ${args.sessionId}: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
+async function handleRecordStop(args: { sessionId: string; savePath: string; fps?: number }) {
+  const session = getSession(args.sessionId);
+  if (!session) {
+    return errorResponse(`Session not found: ${args.sessionId}`);
+  }
+
+  try {
+    const result = await session.stopRecording(args.savePath, args.fps);
+    return jsonResponse(result);
+  } catch (err) {
+    return errorResponse(
+      `Failed to stop recording for session ${args.sessionId}: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
 async function handleClose(args: { sessionId: string; signal?: string }) {
   const { sessionId } = args;
   const session = getSession(sessionId);
@@ -712,6 +757,61 @@ export function createServer(): McpServer {
     },
     args => {
       return handleScreenshot(args);
+    }
+  );
+
+  // --- tui_record_start ---
+  server.registerTool(
+    TOOL_NAMES.RECORD_START,
+    {
+      title: 'Start Recording',
+      description:
+        'Start recording the terminal session to a video. Captures one frame per distinct screen state ' +
+        '(idle gaps between keystrokes are compressed, not recorded in real time). Call tui_record_stop to encode.',
+      inputSchema: {
+        sessionId: z.string().describe('The session ID returned by tui_launch.'),
+        theme: z.enum(['dark', 'light']).optional().describe('Color theme for rendering (default: "dark").'),
+        fontSize: z.number().min(8).max(48).optional().describe('Terminal font size in pixels (default: 16).'),
+        showWindowChrome: z.boolean().optional().describe('Whether frames include terminal window chrome (default: true).'),
+        title: z.string().max(200).optional().describe('Optional title shown in terminal window chrome.'),
+        debounceMs: z
+          .number()
+          .int()
+          .min(0)
+          .max(5000)
+          .optional()
+          .describe('Milliseconds of screen silence before a changed screen is captured as a frame (default: 120).'),
+      },
+      annotations: {
+        openWorldHint: true,
+      },
+    },
+    args => {
+      return handleRecordStart(args);
+    }
+  );
+
+  // --- tui_record_stop ---
+  server.registerTool(
+    TOOL_NAMES.RECORD_STOP,
+    {
+      title: 'Stop Recording',
+      description:
+        'Stop the in-progress recording and encode the captured frames to a video file on disk. ' +
+        'The savePath extension selects the format: ".gif" produces a GIF, anything else produces an MP4.',
+      inputSchema: {
+        sessionId: z.string().describe('The session ID returned by tui_launch.'),
+        savePath: z
+          .string()
+          .describe('Absolute file path to write the video to. Extension ".gif" produces a GIF, otherwise MP4.'),
+        fps: z.number().int().min(1).max(60).optional().describe('Output frame rate (default: 10).'),
+      },
+      annotations: {
+        destructiveHint: true,
+      },
+    },
+    async args => {
+      return await handleRecordStop(args);
     }
   );
 
