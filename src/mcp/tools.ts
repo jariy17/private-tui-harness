@@ -34,6 +34,7 @@ export const TOOL_NAMES = {
   ACTION: 'tui_action',
   RECORD_START: 'tui_record_start',
   RECORD_STOP: 'tui_record_stop',
+  VIDEO_NARRATE: 'tui_video_narrate',
 } as const;
 
 // ---------------------------------------------------------------------------

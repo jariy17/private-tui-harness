@@ -1,7 +1,7 @@
 /**
  * MCP server for the TUI harness.
  *
- * Creates and configures an MCP Server instance that exposes eight tools for
+ * Creates and configures an MCP Server instance that exposes tools for
  * interacting with TUI applications through headless pseudo-terminals:
  *
  *   tui_launch        - Spawn a TUI process in a PTY
@@ -10,21 +10,36 @@
  *   tui_read_screen   - Read the current terminal screen
  *   tui_wait_for      - Wait for a pattern to appear on screen
  *   tui_screenshot    - Capture a bordered, numbered screenshot (text or SVG)
+ *   tui_record_start  - Start recording terminal screen changes
+ *   tui_record_stop   - Encode a recording to MP4 or GIF
+ *   tui_video_narrate - Add synthesized Amazon Polly narration to an MP4
  *   tui_close         - Close a session and terminate its process
  *   tui_list_sessions - List retained sessions and their current liveness
  */
 import {
   DARK_THEME,
+  DEFAULT_NARRATION_TAIL_PADDING_MS,
+  DEFAULT_NARRATION_TARGET_LUFS,
   DEFAULT_PNG_PIXEL_RATIO,
+  DEFAULT_POLLY_ENGINE,
+  DEFAULT_POLLY_VOICE_ID,
   DEFAULT_TERMINAL_COLS,
   DEFAULT_TERMINAL_ROWS,
   LIGHT_THEME,
   LaunchError,
+  MAX_NARRATION_CHARACTERS,
   TuiSession,
   WaitForTimeoutError,
   closeAll,
+  narrateVideo,
 } from '../index.js';
-import type { CloseResult, SpecialKey, SvgRenderOptions } from '../index.js';
+import type {
+  CloseResult,
+  PollyEngine,
+  PollyTextType,
+  SpecialKey,
+  SvgRenderOptions,
+} from '../index.js';
 import { LAUNCH_DEFAULTS, SPECIAL_KEY_ENUM, TOOL_NAMES } from './tools.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { writeFileSync } from 'fs';
@@ -471,6 +486,43 @@ async function handleRecordStop(args: { sessionId: string; savePath: string; fps
   }
 }
 
+async function handleVideoNarrate(args: {
+  videoPath: string;
+  savePath: string;
+  narration: string;
+  voiceId?: string;
+  engine?: PollyEngine;
+  textType?: PollyTextType;
+  languageCode?: string;
+  profile?: string;
+  region?: string;
+  audioSavePath?: string;
+  targetLufs?: number;
+  tailPaddingMs?: number;
+}) {
+  try {
+    const result = await narrateVideo({
+      videoPath: args.videoPath,
+      outputPath: args.savePath,
+      narration: args.narration,
+      voiceId: args.voiceId,
+      engine: args.engine,
+      textType: args.textType,
+      languageCode: args.languageCode,
+      profile: args.profile,
+      region: args.region,
+      audioOutputPath: args.audioSavePath,
+      targetLufs: args.targetLufs,
+      tailPaddingMs: args.tailPaddingMs,
+    });
+    return jsonResponse(result);
+  } catch (err) {
+    return errorResponse(
+      `Failed to narrate video ${args.videoPath}: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
 async function handleClose(args: { sessionId: string; signal?: string }) {
   const { sessionId } = args;
   const session = getSession(sessionId);
@@ -825,6 +877,79 @@ export function createServer(): McpServer {
     },
     async args => {
       return await handleRecordStop(args);
+    }
+  );
+
+  // --- tui_video_narrate ---
+  server.registerTool(
+    TOOL_NAMES.VIDEO_NARRATE,
+    {
+      title: 'Narrate Video',
+      description:
+        'Synthesize narration with Amazon Polly and add it to an existing MP4. ' +
+        'Speech is loudness-normalized, and the shorter stream is padded so neither the video nor narration is truncated.',
+      inputSchema: {
+        videoPath: z.string().min(1).describe('Absolute path to the source MP4 video.'),
+        savePath: z
+          .string()
+          .min(1)
+          .describe('Absolute path to write the narrated MP4. Existing files are overwritten.'),
+        narration: z
+          .string()
+          .min(1)
+          .max(MAX_NARRATION_CHARACTERS)
+          .describe(
+            `Text or SSML to synthesize as the narration track (maximum ${MAX_NARRATION_CHARACTERS} characters).`
+          ),
+        voiceId: z
+          .string()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe(`Amazon Polly voice ID (default: "${DEFAULT_POLLY_VOICE_ID}").`),
+        engine: z
+          .enum(['standard', 'neural', 'long-form', 'generative'])
+          .optional()
+          .describe(`Amazon Polly synthesis engine (default: "${DEFAULT_POLLY_ENGINE}").`),
+        textType: z.enum(['text', 'ssml']).optional().describe('Narration input type (default: "text").'),
+        languageCode: z
+          .string()
+          .max(20)
+          .optional()
+          .describe('Optional Amazon Polly language code for bilingual voices.'),
+        profile: z.string().max(200).optional().describe('AWS CLI profile used for Amazon Polly.'),
+        region: z.string().max(100).optional().describe('AWS region used for Amazon Polly.'),
+        audioSavePath: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Optional absolute path to retain the synthesized MP3 narration separately.'),
+        targetLufs: z
+          .number()
+          .min(-24)
+          .max(-10)
+          .optional()
+          .describe(
+            `Integrated narration loudness target in LUFS (default: ${DEFAULT_NARRATION_TARGET_LUFS}).`
+          ),
+        tailPaddingMs: z
+          .number()
+          .int()
+          .min(0)
+          .max(10000)
+          .optional()
+          .describe(
+            `Silence retained after narration before the video ends in milliseconds (default: ${DEFAULT_NARRATION_TAIL_PADDING_MS}).`
+          ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: true,
+      },
+    },
+    async args => {
+      return await handleVideoNarrate(args);
     }
   );
 

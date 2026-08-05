@@ -100,6 +100,7 @@ describe('MCP server', () => {
     const sendKeys = tools.find(tool => tool.name === 'tui_send_keys');
     const waitFor = tools.find(tool => tool.name === 'tui_wait_for');
     const screenshot = tools.find(tool => tool.name === 'tui_screenshot');
+    const videoNarrate = tools.find(tool => tool.name === 'tui_video_narrate');
     const launchProperties = launch?.inputSchema.properties as
       | Record<string, { description?: string }>
       | undefined;
@@ -112,6 +113,9 @@ describe('MCP server', () => {
     const screenshotProperties = screenshot?.inputSchema.properties as
       | Record<string, { description?: string }>
       | undefined;
+    const narrationProperties = videoNarrate?.inputSchema.properties as
+      | Record<string, { description?: string }>
+      | undefined;
 
     expect(launchProperties?.cols?.description).toContain(`default: ${DEFAULT_TERMINAL_COLS}`);
     expect(launchProperties?.rows?.description).toContain(`default: ${DEFAULT_TERMINAL_ROWS}`);
@@ -121,6 +125,13 @@ describe('MCP server', () => {
     expect(screenshot?.annotations).toMatchObject({
       readOnlyHint: false,
       destructiveHint: true,
+    });
+    expect(narrationProperties?.voiceId?.description).toContain('default: "Joanna"');
+    expect(narrationProperties?.engine?.description).toContain('default: "neural"');
+    expect(videoNarrate?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: true,
     });
   });
 

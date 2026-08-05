@@ -58,3 +58,22 @@ export type {
 // --- Video recording ---
 export { TerminalRecorder } from './lib/video-recorder.js';
 export type { RecordingOptions, RecordingResult, VideoFormat } from './lib/video-recorder.js';
+
+// --- Video narration ---
+export {
+  DEFAULT_NARRATION_TAIL_PADDING_MS,
+  DEFAULT_NARRATION_TARGET_LUFS,
+  DEFAULT_POLLY_ENGINE,
+  DEFAULT_POLLY_VOICE_ID,
+  MAX_NARRATION_CHARACTERS,
+  buildNarratedVideoArgs,
+  buildPollyArgs,
+  narrateVideo,
+} from './lib/video-narration.js';
+export type {
+  NarratedVideoTiming,
+  PollyEngine,
+  PollyTextType,
+  VideoNarrationOptions,
+  VideoNarrationResult,
+} from './lib/video-narration.js';
