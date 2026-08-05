@@ -46,3 +46,7 @@ export type { SvgRenderOptions, SvgTheme, TerminalVisualProfile } from './lib/sv
 // --- PNG Screenshots ---
 export { rasterizeTerminalSvg, renderTerminalToPng } from './lib/terminal-rasterizer.js';
 export type { RasterizedTerminalImage } from './lib/terminal-rasterizer.js';
+
+// --- Video recording ---
+export { TerminalRecorder } from './lib/video-recorder.js';
+export type { RecordingOptions, RecordingResult, VideoFormat } from './lib/video-recorder.js';
